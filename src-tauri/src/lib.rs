@@ -1,4 +1,5 @@
 mod opml;
+mod zotero;
 
 use std::fs;
 use std::path::PathBuf;
@@ -11,6 +12,23 @@ fn open_outline(path: PathBuf) -> Result<Document, String> {
     let xml = fs::read_to_string(&path)
         .map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     opml::parse(&xml)
+}
+
+/// Searches the user's Zotero library (see zotero.rs).
+#[tauri::command]
+async fn zotero_search(query: String) -> Result<Vec<zotero::Item>, String> {
+    // The request waits on the network, so keep it off the main thread.
+    tauri::async_runtime::spawn_blocking(move || zotero::search(&query))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// The notes attached to a Zotero item, as HTML (see zotero.rs).
+#[tauri::command]
+async fn zotero_notes(uri: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || zotero::notes(&uri))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -67,7 +85,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![open_outline, save_outline])
+        .invoke_handler(tauri::generate_handler![open_outline, save_outline, zotero_search, zotero_notes])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

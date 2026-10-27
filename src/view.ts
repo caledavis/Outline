@@ -2,13 +2,19 @@
 // to the document (via the functions in model.ts).
 
 import type { Editor } from "@tiptap/core";
-import { ask } from "@tauri-apps/plugin-dialog";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { ask, message } from "@tauri-apps/plugin-dialog";
+import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { createEditor, editorHtml, type EditorKind } from "./editor";
-import { ChevronDown, ChevronRight, GripVertical, Plus, X, icon } from "./icons";
+import {
+  BookOpen, CalendarDays, ChevronDown, ChevronRight, FileText, Globe, GripVertical, Hash, List,
+  Paperclip, Pencil, Plus, RotateCcw, SquareCheck, Tag, Trash2, Type, X, icon,
+} from "./icons";
+import { toggleMenu, type MenuEntry } from "./menu";
 import * as model from "./model";
-import { TOPIC, type Column, type OutlineDoc, type Row } from "./model";
+import { TOPIC, type Column, type ColumnType, type Link, type OutlineDoc, type Row } from "./model";
+import { promptText } from "./prompt";
 import { plainText, sanitize } from "./sanitize";
+import { fetchZoteroNotes } from "./zotero";
 
 /** Field name used for a row's note (every other field is a column id). */
 const NOTE = "note";
@@ -43,6 +49,30 @@ interface DropPlacement {
   y: number;
 }
 
+/** What the outline is narrowed down to; rows must match all of it. */
+export interface Filter {
+  /** Words that must all appear somewhere in the row. */
+  text: string;
+  /** Tags the row must have. */
+  tags: string[];
+  /** Column id → the value its cells must hold ("true" or "" for checkboxes). */
+  columns: Record<string, string>;
+}
+
+const NO_FILTER: Filter = { text: "", tags: [], columns: {} };
+
+const COLUMN_TYPES: [ColumnType, string, Parameters<typeof icon>[0]][] = [
+  ["text", "Text", Type],
+  ["checkbox", "Checkbox", SquareCheck],
+  ["number", "Number", Hash],
+  ["date", "Date", CalendarDays],
+  ["select", "Pop-up list", List],
+  // These are made automatically when a row first gets tags or links, not chosen from the menu.
+  ["tags", "Tags", Tag],
+  ["links", "Links", Paperclip],
+  ["zotero", "Zotero links", BookOpen],
+];
+
 const GUTTER_PX = 28;
 const DEFAULT_COLUMN_PX = 160;
 const MIN_COLUMN_PX = 60;
@@ -64,6 +94,18 @@ export class OutlineView {
   onLinkRequest = () => {};
   /** Called when the selected rows change. */
   onSelectionChange = () => {};
+  /** Called when the search or filters change. */
+  onFilterChange = () => {};
+  /** Called when the user clicks an empty part of a Zotero cell. */
+  onCiteRequest = () => {};
+  /** Called when the user clicks an empty part of a Tags cell, with the cell to show a menu by. */
+  onTagRequest: (cell: HTMLElement) => void = () => {};
+  /** Called when the user clicks an empty part of a Links cell, with the cell to show a menu by. */
+  onAttachRequest: (cell: HTMLElement) => void = () => {};
+
+  filter: Filter = NO_FILTER;
+  /** Rows kept on screen while filtering although they don't match (new or edited rows). */
+  private pinned = new Set<string>();
 
   private editing: Editing | null = null;
   /** A row whose (still empty) note is open for editing. */
@@ -71,6 +113,8 @@ export class OutlineView {
   private undoStack: string[] = [];
   private redoStack: string[] = [];
   private drag: Drag | null = null;
+  /** The column being dragged to a new position. */
+  private columnDrag: string | null = null;
   private dropLine = el("div", "drop-line");
   private styleSheet = document.head.appendChild(el("style"));
 
@@ -96,12 +140,18 @@ export class OutlineView {
     this.stopEditing(false);
     this.doc = doc;
     doc.styles ??= [];
+    doc.tags ??= [];
+    model.addMissingRowDataColumns(doc);
+    this.filter = NO_FILTER;
+    this.pinned.clear();
+    this.root.classList.remove("filtering");
     this.undoStack = [];
     this.redoStack = [];
     if (doc.rows.length === 0) doc.rows.push(model.newRow());
     this.selectOnly(doc.rows[0].id);
     this.render();
     this.onSelectionChange();
+    this.onFilterChange();
   }
 
   // -------------------------------------------------------------------------
@@ -112,7 +162,9 @@ export class OutlineView {
     this.updateColumnWidths();
     this.updateStyleSheet();
     const rows = el("div", "rows");
-    for (const { row, depth } of model.visibleRows(this.doc)) rows.append(this.renderRow(row, depth));
+    const visible = this.visible();
+    for (const { row, depth, context } of visible) rows.append(this.renderRow(row, depth, context));
+    if (!visible.length) rows.append(text("no-matches", "No rows match."));
     this.root.replaceChildren(this.renderHeader(), rows);
   }
 
@@ -137,6 +189,8 @@ export class OutlineView {
 
     for (const column of this.doc.columns) {
       const cell = el("div", "hcell");
+      cell.dataset.col = column.id;
+      cell.draggable = true; // drag a header to move its column
       const name = el("span", "name");
       name.textContent = column.name;
       name.contentEditable = "plaintext-only";
@@ -150,15 +204,21 @@ export class OutlineView {
         }
       });
       name.addEventListener("blur", () => this.renameColumn(column.id, name.textContent ?? ""));
+      const type = model.columnType(column);
+      if (type !== "text") {
+        const typeIcon = icon(COLUMN_TYPES.find(([t]) => t === type)![2], 13);
+        typeIcon.classList.add("column-type");
+        cell.append(typeIcon);
+      }
       cell.append(name);
 
       if (column.id !== TOPIC) {
-        const remove = el("button", "delete-column");
-        remove.append(icon(X, 14));
-        remove.title = "Delete column";
-        remove.setAttribute("aria-label", "Delete column");
-        remove.addEventListener("click", () => this.deleteColumn(column.id));
-        cell.append(remove);
+        const menu = el("button", "column-menu");
+        menu.append(icon(ChevronDown, 14));
+        menu.title = "Column type and options";
+        menu.setAttribute("aria-label", "Column options");
+        menu.addEventListener("click", () => toggleMenu(menu, () => this.columnMenu(column)));
+        cell.append(menu);
       }
       const resizer = el("div", "resizer");
       resizer.title = "Drag to resize; double-click to reset";
@@ -172,15 +232,17 @@ export class OutlineView {
     add.append(icon(Plus));
     add.title = "Add column";
     add.setAttribute("aria-label", "Add column");
-    add.addEventListener("click", () => this.addColumn());
+    add.addEventListener("click", () => toggleMenu(add, () => this.addColumnMenu()));
     header.append(add);
     return header;
   }
 
-  private renderRow(row: Row, depth: number): HTMLElement {
+  private renderRow(row: Row, depth: number, context = false): HTMLElement {
     const rowEl = el("div", "row");
     rowEl.dataset.id = row.id;
     rowEl.classList.toggle("selected", this.selection.has(row.id));
+    // Shown only because a row inside it matches the filter.
+    rowEl.classList.toggle("context", context);
     if (row.style) rowEl.dataset.style = row.style;
 
     const gutter = el("div", "gutter");
@@ -205,9 +267,11 @@ export class OutlineView {
         } else {
           toggle.classList.add("leaf");
         }
-        cell.append(toggle);
+        cell.append(toggle, content(row.cells[TOPIC] ?? ""), this.renderBadges(row));
+      } else {
+        cell.classList.add(model.columnType(column));
+        cell.append(this.renderValue(row, column));
       }
-      cell.append(content(row.cells[column.id] ?? ""));
       rowEl.append(cell);
     }
     rowEl.append(el("div"));
@@ -220,6 +284,82 @@ export class OutlineView {
       rowEl.append(note);
     }
     return rowEl;
+  }
+
+  /** A cell in one of the extra columns, drawn to suit the column's type. */
+  private renderValue(row: Row, column: Column): HTMLElement {
+    const value = row.cells[column.id] ?? "";
+    switch (model.columnType(column)) {
+      case "checkbox": {
+        const box = el("input", "checkbox");
+        box.type = "checkbox";
+        box.checked = value === "true";
+        box.addEventListener("change", () => this.setCell(row.id, column.id, box.checked ? "true" : ""));
+        return box;
+      }
+      case "select": {
+        const select = el("select", "choice");
+        const choices = column.options ?? [];
+        // Keep a value that's no longer one of the choices, so it isn't lost silently.
+        const extra = value && !choices.includes(value) ? [value] : [];
+        for (const choice of ["", ...choices, ...extra]) select.append(new Option(choice || "—", choice));
+        select.value = value;
+        select.classList.toggle("empty", !value);
+        select.addEventListener("change", () => this.setCell(row.id, column.id, select.value));
+        return select;
+      }
+      case "number":
+        return text("content", model.formatNumber(value));
+      case "date":
+        return text("content", model.formatDate(value));
+      case "tags": {
+        const tags = el("div", "content badge-list");
+        for (const tag of row.tags ?? []) tags.append(tagBadge(tag));
+        return tags;
+      }
+      case "links": {
+        const links = el("div", "content badge-list");
+        row.links?.forEach((link, index) => {
+          if (link.kind !== "zotero") links.append(linkBadge(link, index));
+        });
+        return links;
+      }
+      case "zotero": {
+        const links = el("div", "content badge-list");
+        links.classList.toggle("with-notes", !!column.showNotes);
+        row.links?.forEach((link, index) => {
+          if (link.kind !== "zotero") return;
+          if (!column.showNotes) {
+            links.append(linkBadge(link, index));
+            return;
+          }
+          const item = el("div", "zotero-link");
+          item.append(linkBadge(link, index));
+          for (const note of link.notes ?? []) {
+            const noteEl = text("zotero-note", note);
+            noteEl.title = "Click to copy";
+            item.append(noteEl);
+          }
+          links.append(item);
+        });
+        return links;
+      }
+      default:
+        return content(value);
+    }
+  }
+
+  /** The row's tags and links, shown after its Topic when they don't have a column of their own. */
+  private renderBadges(row: Row): HTMLElement | string {
+    const tags = model.rowDataColumn(this.doc, "tags") ? [] : (row.tags ?? []);
+    const links = (row.links ?? [])
+      .map((link, index) => ({ link, index }))
+      .filter(({ link }) => !model.rowDataColumn(this.doc, model.linkColumnType(link)));
+    if (!tags.length && !links.length) return "";
+    const badges = el("div", "badges");
+    for (const tag of tags) badges.append(tagBadge(tag));
+    for (const { link, index } of links) badges.append(linkBadge(link, index));
+    return badges;
   }
 
   private rowElement(id: string): HTMLElement | null {
@@ -278,7 +418,7 @@ export class OutlineView {
 
   /** Selects every visible row from the anchor row to this one. */
   private extendSelection(id: string) {
-    const ids = model.visibleRows(this.doc).map((v) => v.row.id);
+    const ids = this.visible().map((v) => v.row.id);
     const to = ids.indexOf(id);
     const from = ids.indexOf(this.anchorId ?? id);
     if (to < 0) return;
@@ -289,7 +429,7 @@ export class OutlineView {
   }
 
   private extendSelectionBy(delta: -1 | 1) {
-    const ids = model.visibleRows(this.doc).map((v) => v.row.id);
+    const ids = this.visible().map((v) => v.row.id);
     const next = ids[ids.indexOf(this.selectedId!) + delta];
     if (next) this.extendSelection(next);
   }
@@ -338,6 +478,18 @@ export class OutlineView {
     this.stopEditing();
     const row = model.locate(this.doc, rowId)?.row;
     if (!row) return;
+    if (this.filtering) this.pinned.add(rowId); // don't let it vanish while being edited
+
+    const column = this.doc.columns.find((c) => c.id === field);
+    if (column && model.columnType(column) !== "text") {
+      this.select(rowId);
+      if (column.type === "number" || column.type === "date") this.editValue(row, column);
+      if (column.type === "zotero") this.onCiteRequest();
+      const cell = this.rowElement(rowId)?.querySelector<HTMLElement>(`[data-field="${field}"]`);
+      if (cell && column.type === "tags") this.onTagRequest(cell);
+      if (cell && column.type === "links") this.onAttachRequest(cell);
+      return;
+    }
     if (field === NOTE && !row.note && this.openNoteId !== rowId) {
       this.openNoteId = rowId;
       this.render();
@@ -358,6 +510,34 @@ export class OutlineView {
     this.editing = { rowId, field, editor, saved: editorHtml(editor, kind) };
     editor.commands.focus(cursor);
     this.onEditorChange(editor);
+  }
+
+  /** Edits a number or date cell with a plain input box. */
+  private editValue(row: Row, column: Column) {
+    const target = this.rowElement(row.id)?.querySelector<HTMLElement>(`[data-field="${column.id}"] .content`);
+    if (!target) return;
+    const input = el("input", "value-input");
+    input.type = column.type === "date" ? "date" : "number";
+    input.step = "any";
+    input.value = row.cells[column.id] ?? "";
+    target.replaceChildren(input);
+    input.focus();
+
+    let finished = false;
+    const finish = (save: boolean) => {
+      if (finished) return;
+      finished = true;
+      const value = input.value.trim();
+      if (save && value !== (row.cells[column.id] ?? "")) this.setCell(row.id, column.id, value);
+      else target.replaceWith(this.renderValue(row, column));
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === "Escape") {
+        e.preventDefault();
+        finish(e.key === "Enter");
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
   }
 
   /** Copies the text being edited into the document, without leaving the cell. */
@@ -491,6 +671,32 @@ export class OutlineView {
     const target = e.target as HTMLElement;
     const rowId = target.closest<HTMLElement>(".row")?.dataset.id;
 
+    // Checkboxes and pop-up lists handle their own clicks.
+    if (target.closest("input, select")) return;
+
+    const note = target.closest<HTMLElement>(".zotero-note");
+    if (note) {
+      copyText(note.textContent ?? "", note);
+      return;
+    }
+
+    const badge = target.closest<HTMLElement>(".badge");
+    if (badge && rowId) {
+      const remove = !!target.closest(".badge-remove");
+      if (badge.dataset.tag !== undefined) {
+        if (remove) this.removeTag(rowId, badge.dataset.tag);
+        else this.toggleTagFilter(badge.dataset.tag);
+      } else {
+        const index = Number(badge.dataset.link);
+        if (remove) this.removeLink(rowId, index);
+        else {
+          const link = model.locate(this.doc, rowId)?.row.links?.[index];
+          if (link) openLink(link);
+        }
+      }
+      return;
+    }
+
     const link = target.closest("a");
     if (link) {
       e.preventDefault(); // never navigate the app window away
@@ -522,7 +728,7 @@ export class OutlineView {
   }
 
   private moveSelection(delta: -1 | 1) {
-    const visible = model.visibleRows(this.doc);
+    const visible = this.visible();
     const index = visible.findIndex((v) => v.row.id === this.selectedId);
     const next = visible[index + delta] ?? (index === -1 ? visible[0] : null);
     if (!next) return;
@@ -594,6 +800,7 @@ export class OutlineView {
 
   addRow() {
     const row = model.newRow();
+    this.pinned.add(row.id);
     this.change(() => (model.insertAfter(this.doc, this.selectedId, row), true), { rowId: row.id, field: TOPIC });
   }
 
@@ -635,14 +842,14 @@ export class OutlineView {
     const ids = this.selectedRows();
     if (!ids.length) return;
     // Afterwards, select the row just above the first one deleted.
-    const visible = model.visibleRows(this.doc);
+    const visible = this.visible();
     const index = visible.findIndex((v) => this.selection.has(v.row.id));
     const wasEditing = this.editing;
     this.stopEditing();
     this.change(() => {
       for (const id of ids) model.removeRow(this.doc, id);
       if (this.doc.rows.length === 0) this.doc.rows.push(model.newRow());
-      const remaining = model.visibleRows(this.doc);
+      const remaining = this.visible();
       this.selectOnly((remaining[index - 1] ?? remaining[0]).row.id);
       return true;
     });
@@ -660,11 +867,33 @@ export class OutlineView {
   // Columns
   // -------------------------------------------------------------------------
 
-  addColumn() {
+  /** The kinds of column that can be added (only one Tags, Links or Zotero column each). */
+  private addColumnMenu(): MenuEntry[] {
+    const types = COLUMN_TYPES.filter(([type]) => !model.isRowDataType(type) || !model.rowDataColumn(this.doc, type));
+    return [
+      { heading: "Add a column" },
+      ...types.map(([type, label, typeIcon]): MenuEntry => ({ label, icon: typeIcon, action: () => this.addColumn(type) })),
+    ];
+  }
+
+  addColumn(type: ColumnType = "text") {
     this.stopEditing();
-    this.change(() => (model.addColumn(this.doc), true));
+    if (model.isRowDataType(type)) {
+      this.change(() => model.ensureRowDataColumn(this.doc, type));
+      return;
+    }
+    this.change(() => {
+      const column = model.addColumn(this.doc);
+      if (type !== "text") column.type = type;
+      return true;
+    });
+    const added = this.doc.columns[this.doc.columns.length - 1];
+    if (type === "select") {
+      this.editChoices(added.id);
+      return;
+    }
     // Put the cursor in the new column's name so it can be typed straight away.
-    const name = this.root.querySelector<HTMLElement>(`.hcell:nth-child(${this.doc.columns.length + 1}) .name`);
+    const name = this.root.querySelector<HTMLElement>(`.hcell[data-col="${added.id}"] .name`);
     if (name) {
       name.focus();
       getSelection()?.selectAllChildren(name);
@@ -683,15 +912,111 @@ export class OutlineView {
     this.onChange();
   }
 
+  private columnMenu(column: Column): MenuEntry[] {
+    const type = model.columnType(column);
+    const remove: MenuEntry = { label: "Delete column", icon: Trash2, danger: true, action: () => this.deleteColumn(column.id) };
+    if (type === "zotero") {
+      return [
+        { label: "Show notes", checked: !!column.showNotes, action: () => this.toggleShowNotes(column.id) },
+        { label: "Update notes from Zotero", icon: RotateCcw, action: () => this.updateZoteroNotes() },
+        "separator",
+        remove,
+      ];
+    }
+    if (model.isRowDataType(type)) return [remove];
+    const entries: MenuEntry[] = [{ heading: "Type" }];
+    for (const [value, label, typeIcon] of COLUMN_TYPES.filter(([t]) => !model.isRowDataType(t))) {
+      entries.push({ label, icon: typeIcon, checked: type === value, action: () => this.setColumnType(column.id, value) });
+    }
+    if (type === "select") {
+      entries.push("separator", { label: "Edit choices…", icon: Pencil, action: () => this.editChoices(column.id) });
+    }
+    entries.push("separator", remove);
+    return entries;
+  }
+
+  private setColumnType(id: string, type: ColumnType) {
+    this.dropColumnFilter(id);
+    this.change(() => model.setColumnType(this.doc, id, type));
+    const column = this.doc.columns.find((c) => c.id === id);
+    if (type === "select" && column && !column.options?.length) this.editChoices(id);
+  }
+
+  private async editChoices(id: string) {
+    const column = this.doc.columns.find((c) => c.id === id);
+    if (!column) return;
+    const choices = await promptText(`Choices for “${column.name}”, one per line`, (column.options ?? []).join("\n"), {
+      multiline: true,
+    });
+    if (choices !== null) this.change(() => model.setColumnOptions(this.doc, id, choices.split("\n")));
+  }
+
+  private toggleShowNotes(id: string) {
+    const column = this.doc.columns.find((c) => c.id === id);
+    if (!column) return;
+    this.change(() => {
+      column.showNotes = !column.showNotes;
+      return true;
+    });
+  }
+
+  /** Fetches every linked Zotero item's notes again (after they've been edited in Zotero). */
+  private async updateZoteroNotes() {
+    const uris = new Set<string>();
+    model.walk(this.doc.rows, (row) => {
+      for (const link of row.links ?? []) if (link.kind === "zotero") uris.add(link.target);
+    });
+    const fetched = new Map<string, string[]>();
+    try {
+      for (const uri of uris) fetched.set(uri, await fetchZoteroNotes(uri));
+    } catch (error) {
+      await message(String(error), { title: "Could not update notes", kind: "error" });
+      return;
+    }
+    this.change(() => {
+      let changed = false;
+      model.walk(this.doc.rows, (row) => {
+        for (const link of row.links ?? []) {
+          const notes = fetched.get(link.target);
+          if (link.kind === "zotero" && notes && JSON.stringify(notes) !== JSON.stringify(link.notes ?? [])) {
+            link.notes = notes;
+            changed = true;
+          }
+        }
+      });
+      return changed;
+    });
+  }
+
+  /** Sets a cell in one of the extra columns. */
+  setCell(rowId: string, columnId: string, value: string) {
+    const row = model.locate(this.doc, rowId)?.row;
+    if (!row) return;
+    this.change(() => {
+      if ((row.cells[columnId] ?? "") === value) return false;
+      if (value) row.cells[columnId] = value;
+      else delete row.cells[columnId];
+      return true;
+    });
+  }
+
   private async deleteColumn(id: string) {
     const column = this.doc.columns.find((c) => c.id === id);
     if (!column) return;
-    const confirmed = await ask(`Delete the column “${column.name}” and everything in it?`, {
+    const shown = { tags: "tags", links: "links", zotero: "Zotero links" } as Record<string, string>;
+    const type = model.columnType(column);
+    const question =
+      type in shown
+        ? `Remove the “${column.name}” column? The ${shown[type]} will be shown next to each row's topic instead.`
+        : `Delete the column “${column.name}” and everything in it?`;
+    const confirmed = await ask(question, {
       title: "Delete column",
       kind: "warning",
       okLabel: "Delete",
     });
-    if (confirmed) this.change(() => (model.removeColumn(this.doc, id), true));
+    if (!confirmed) return;
+    this.dropColumnFilter(id);
+    this.change(() => (model.removeColumn(this.doc, id), true));
   }
 
   private startResize(e: PointerEvent, column: Column, headerCell: HTMLElement) {
@@ -740,6 +1065,25 @@ export class OutlineView {
 
   private handleDragStart(e: DragEvent) {
     const handle = e.target as HTMLElement;
+    const header = handle.closest<HTMLElement>(".hcell");
+    if (header) {
+      // Not while resizing a column or renaming one.
+      if (document.body.classList.contains("resizing") || header.contains(document.activeElement)) {
+        e.preventDefault();
+        return;
+      }
+      this.stopEditing();
+      this.columnDrag = header.dataset.col!;
+      e.dataTransfer!.effectAllowed = "move";
+      e.dataTransfer!.setData("text/plain", "");
+      header.classList.add("dragging");
+      return;
+    }
+    if (this.filtering) {
+      // With rows hidden, where a row would land is unclear.
+      e.preventDefault();
+      return;
+    }
     const rowEl = handle.closest<HTMLElement>(".row");
     if (!rowEl || !handle.classList.contains("handle")) return;
     this.stopEditing();
@@ -762,9 +1106,7 @@ export class OutlineView {
     const drag = this.drag!;
     const dragged = model.locate(this.doc, drag.rowId)!.row;
     // The dragged row and its children can't be drop targets.
-    const visible = model
-      .visibleRows(this.doc)
-      .filter((v) => v.row !== dragged && !model.contains(dragged, v.row.id));
+    const visible = this.visible().filter((v) => v.row !== dragged && !model.contains(dragged, v.row.id));
     const rects = visible.map((v) => this.rowElement(v.row.id)!.getBoundingClientRect());
 
     // The gap is just after the last row whose middle is above the pointer.
@@ -796,7 +1138,26 @@ export class OutlineView {
     return { parentId, index, depth, y: gapY - rootTop };
   }
 
+  /** The column a dragged column would be dropped next to, from the pointer's position across the outline. */
+  private columnDropTarget(e: DragEvent): { target: HTMLElement; after: boolean } | null {
+    for (const target of this.root.querySelectorAll<HTMLElement>(".hcell")) {
+      const rect = target.getBoundingClientRect();
+      if (e.clientX >= rect.left && e.clientX < rect.right) {
+        return target.dataset.col === this.columnDrag ? null : { target, after: e.clientX > rect.left + rect.width / 2 };
+      }
+    }
+    return null;
+  }
+
   private handleDragOver(e: DragEvent) {
+    if (this.columnDrag) {
+      e.preventDefault();
+      e.dataTransfer!.dropEffect = "move";
+      this.root.querySelector(".hcell.drop-before, .hcell.drop-after")?.classList.remove("drop-before", "drop-after");
+      const drop = this.columnDropTarget(e);
+      drop?.target.classList.add(drop.after ? "drop-after" : "drop-before");
+      return;
+    }
     if (!this.drag) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = "move";
@@ -811,6 +1172,14 @@ export class OutlineView {
   }
 
   private handleDrop(e: DragEvent) {
+    if (this.columnDrag) {
+      e.preventDefault();
+      const drop = this.columnDropTarget(e);
+      const id = this.columnDrag;
+      this.clearDrag();
+      if (drop) this.change(() => model.moveColumn(this.doc, id, drop.target.dataset.col!, drop.after));
+      return;
+    }
     if (!this.drag) return;
     e.preventDefault();
     const { parentId, index } = this.dropPlacement(e);
@@ -823,7 +1192,169 @@ export class OutlineView {
     this.dropLine.remove();
     this.root.querySelector(".drop-parent")?.classList.remove("drop-parent");
     this.root.querySelector(".dragging")?.classList.remove("dragging");
+    this.root.querySelector(".hcell.drop-before, .hcell.drop-after")?.classList.remove("drop-before", "drop-after");
     this.drag = null;
+    this.columnDrag = null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Tags and links
+  // -------------------------------------------------------------------------
+
+  /** The selected rows themselves. */
+  selectedRowObjects(): Row[] {
+    return [...this.selection].map((id) => model.locate(this.doc, id)?.row).filter((r) => !!r);
+  }
+
+  /** Replaces one row's tags. */
+  setTags(rowId: string, tags: string[]) {
+    const row = model.locate(this.doc, rowId)?.row;
+    if (!row) return;
+    const cleaned = model.cleanTags(tags);
+    this.change(() => {
+      if (JSON.stringify(row.tags ?? []) === JSON.stringify(cleaned)) return false;
+      row.tags = cleaned;
+      if (cleaned.length) model.ensureRowDataColumn(this.doc, "tags");
+      return true;
+    });
+  }
+
+  /** Adds a tag to the selected rows, or removes it if they all have it already. */
+  applyTag(tag: string) {
+    const rows = this.selectedRowObjects();
+    if (!rows.length) return;
+    const remove = rows.every((row) => row.tags?.includes(tag));
+    this.change(() => {
+      for (const row of rows) {
+        row.tags = remove ? (row.tags ?? []).filter((t) => t !== tag) : model.cleanTags([...(row.tags ?? []), tag]);
+      }
+      if (!remove) {
+        model.defineTag(this.doc, tag);
+        model.ensureRowDataColumn(this.doc, "tags");
+      }
+      return true;
+    });
+  }
+
+  /** Tags that every selected row has. */
+  selectedTags(): Set<string> {
+    const [first, ...rest] = this.selectedRowObjects();
+    return new Set((first?.tags ?? []).filter((tag) => rest.every((row) => row.tags?.includes(tag))));
+  }
+
+  createTag(name: string): boolean {
+    let created = false;
+    this.change(() => (created = model.defineTag(this.doc, name)));
+    return created;
+  }
+
+  renameTag(from: string, to: string) {
+    const [tag] = model.cleanTags([to]);
+    this.change(() => model.renameTag(this.doc, from, to));
+    if (tag && this.filter.tags.includes(from)) {
+      this.setFilter({ ...this.filter, tags: model.cleanTags(this.filter.tags.map((t) => (t === from ? tag : t))) });
+    }
+  }
+
+  deleteTag(name: string) {
+    this.change(() => (model.deleteTag(this.doc, name), true));
+    if (this.filter.tags.includes(name)) this.toggleTagFilter(name);
+  }
+
+  /** Where to show a menu for the selected row's tags: its Tags cell, or the row itself. */
+  tagMenuAnchor(): HTMLElement | null {
+    const rowEl = this.selectedId ? this.rowElement(this.selectedId) : null;
+    return rowEl?.querySelector<HTMLElement>(".cell.tags") ?? rowEl?.querySelector<HTMLElement>(".cell.topic") ?? null;
+  }
+
+  private removeTag(rowId: string, tag: string) {
+    const row = model.locate(this.doc, rowId)?.row;
+    if (row) this.setTags(rowId, (row.tags ?? []).filter((t) => t !== tag));
+  }
+
+  /** Adds links to every selected row (skipping ones a row already has). */
+  addLinks(links: Link[]) {
+    const rows = this.selectedRowObjects();
+    this.change(() => {
+      let changed = false;
+      for (const type of new Set(links.map(model.linkColumnType))) {
+        if (model.ensureRowDataColumn(this.doc, type)) changed = true;
+      }
+      for (const row of rows) {
+        const fresh = links.filter((l) => !row.links?.some((existing) => existing.target === l.target));
+        if (fresh.length) {
+          row.links = [...(row.links ?? []), ...fresh];
+          changed = true;
+        }
+      }
+      return changed;
+    });
+  }
+
+  private removeLink(rowId: string, index: number) {
+    const row = model.locate(this.doc, rowId)?.row;
+    if (!row?.links?.[index]) return;
+    this.change(() => {
+      row.links = row.links!.filter((_, i) => i !== index);
+      return true;
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Search and filters
+  // -------------------------------------------------------------------------
+
+  get filtering(): boolean {
+    const { text, tags, columns } = this.filter;
+    return !!text.trim() || tags.length > 0 || Object.keys(columns).length > 0;
+  }
+
+  setFilter(filter: Filter) {
+    this.stopEditing();
+    this.filter = filter;
+    this.pinned.clear();
+    this.root.classList.toggle("filtering", this.filtering);
+    this.render();
+    this.updateSelection();
+    this.onFilterChange();
+  }
+
+  toggleTagFilter(tag: string) {
+    const tags = this.filter.tags.includes(tag) ? this.filter.tags.filter((t) => t !== tag) : [...this.filter.tags, tag];
+    this.setFilter({ ...this.filter, tags });
+  }
+
+  private dropColumnFilter(id: string) {
+    if (!(id in this.filter.columns)) return;
+    const columns = { ...this.filter.columns };
+    delete columns[id];
+    this.setFilter({ ...this.filter, columns });
+  }
+
+  /** The rows on screen, in order: all of them, or just those matching the filter. */
+  private visible(): { row: Row; depth: number; context?: boolean }[] {
+    if (!this.filtering) return model.visibleRows(this.doc);
+    return model.filteredRows(this.doc, (row) => this.pinned.has(row.id) || this.matches(row));
+  }
+
+  private matches(row: Row): boolean {
+    const { text, tags, columns } = this.filter;
+    if (tags.some((tag) => !row.tags?.includes(tag))) return false;
+    for (const [id, value] of Object.entries(columns)) {
+      if ((row.cells[id] ?? "") !== value) return false;
+    }
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return true;
+    const haystack = this.searchText(row);
+    return words.every((word) => haystack.includes(word));
+  }
+
+  /** Everything in a row that search looks at, in lower case. */
+  private searchText(row: Row): string {
+    const parts = this.doc.columns.map((c) => model.cellText(c, row.cells[c.id]));
+    parts.push(plainText(row.note), ...(row.tags ?? []));
+    for (const link of row.links ?? []) parts.push(link.title, link.detail ?? "", ...(link.notes ?? []));
+    return parts.join(" ").toLowerCase();
   }
 
   // -------------------------------------------------------------------------
@@ -865,6 +1396,63 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): 
   const element = document.createElement(tag);
   if (className) element.className = className;
   return element;
+}
+
+function text(className: string, value: string): HTMLElement {
+  const element = el("div", className);
+  element.textContent = value;
+  return element;
+}
+
+function removeButton(label: string): HTMLElement {
+  const button = el("span", "badge-remove");
+  button.append(icon(X, 10));
+  button.title = label;
+  return button;
+}
+
+function tagBadge(tag: string): HTMLElement {
+  const badge = el("span", "badge tag");
+  badge.dataset.tag = tag;
+  badge.title = `Show rows tagged “${tag}”`;
+  badge.append(text("badge-label", tag), removeButton("Remove tag"));
+  return badge;
+}
+
+function linkBadge(link: Link, index: number): HTMLElement {
+  const badge = el("span", `badge link ${link.kind}`);
+  badge.dataset.link = String(index);
+  badge.title = [link.detail, link.kind === "zotero" ? "Click to show in Zotero" : link.target].filter(Boolean).join("\n");
+  const kindIcon = link.kind === "zotero" ? BookOpen : link.kind === "file" ? FileText : Globe;
+  badge.append(icon(kindIcon, 12), text("badge-label", link.title), removeButton("Remove link"));
+  return badge;
+}
+
+/** Copies text to the clipboard, briefly marking the element it came from as copied. */
+async function copyText(value: string, from: HTMLElement) {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    // Older webviews: copy via a hidden text box instead.
+    const area = el("textarea");
+    area.value = value;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  from.classList.add("copied");
+  window.setTimeout(() => from.classList.remove("copied"), 1200);
+}
+
+/** Opens a link's file, web page or Zotero item with the system. */
+export async function openLink(link: Link) {
+  try {
+    if (link.kind === "file") await openPath(link.target);
+    else if (/^(https?:|mailto:|zotero:)/i.test(link.target)) await openUrl(link.target);
+  } catch (error) {
+    await message(String(error), { title: "Could not open link", kind: "error" });
+  }
 }
 
 function content(html: string): HTMLElement {

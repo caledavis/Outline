@@ -42,6 +42,14 @@ function clean(parent: Element) {
   }
 }
 
+/** The text of a note (e.g. from Zotero), keeping its paragraphs and line breaks. */
+export function noteText(html: string): string {
+  const body = new DOMParser().parseFromString(html, "text/html").body;
+  for (const br of body.querySelectorAll("br")) br.replaceWith("\n");
+  for (const block of body.querySelectorAll("p, div, li, h1, h2, h3, h4, h5, h6, pre, blockquote")) block.append("\n");
+  return (body.textContent ?? "").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 /** The text of some HTML with all formatting removed. */
 export function plainText(html: string): string {
   if (!html.includes("<") && !html.includes("&")) return html;

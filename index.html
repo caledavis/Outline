@@ -30,8 +30,17 @@
       <div class="divider"></div>
       <div class="group">
         <button data-action="note" data-icon="note" title="Add or edit note (Mod+')" aria-label="Note"></button>
+        <button data-action="attach" data-icon="attach" title="Attach a file or web link" aria-label="Attach"></button>
+        <button data-action="cite" data-icon="cite" title="Link to an item in Zotero" aria-label="Zotero"></button>
       </div>
+      <div class="toolbar-spacer"></div>
+      <label class="search">
+        <span data-icon="search"></span>
+        <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false" />
+      </label>
+      <button data-action="filter" data-icon="filter" title="Filter" aria-label="Filter"></button>
     </header>
+    <div id="filter-bar" class="filter-bar" hidden></div>
 
     <div class="workspace">
       <aside id="sidebar"></aside>
@@ -42,9 +51,25 @@
       <form method="dialog">
         <label for="prompt-input" id="prompt-label"></label>
         <input id="prompt-input" type="text" autocomplete="off" spellcheck="false" />
+        <textarea id="prompt-area" rows="8" spellcheck="false" hidden></textarea>
         <menu>
-          <button value="cancel" formnovalidate>Cancel</button>
+          <button type="button" data-cancel>Cancel</button>
           <button value="ok" class="primary">OK</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="zotero" class="zotero">
+      <form method="dialog">
+        <label class="search">
+          <span data-icon="search"></span>
+          <input id="zotero-query" type="search" placeholder="Search your Zotero library" aria-label="Search Zotero" autocomplete="off" spellcheck="false" />
+        </label>
+        <div id="zotero-status" class="zotero-status"></div>
+        <div id="zotero-results" class="zotero-results"></div>
+        <menu>
+          <button type="button" data-cancel>Cancel</button>
+          <button value="ok" id="zotero-link" class="primary">Link</button>
         </menu>
       </form>
     </dialog>

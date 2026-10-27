@@ -1,15 +1,20 @@
-// The sidebar: an overview of the outline's top-level rows, and the list of
-// styles, where styles are applied to rows and edited.
+// The sidebar: an overview of the outline's top-level rows, then the styles
+// and the tags, where each is applied to rows and managed.
 
-import { Bold, ChevronDown, ChevronUp, Italic, Pencil, Plus, RotateCcw, Trash2, icon } from "./icons";
+import { ask, message } from "@tauri-apps/plugin-dialog";
+import { Bold, ChevronDown, ChevronUp, Italic, ListFilter, Pencil, Plus, RotateCcw, Trash2, icon } from "./icons";
+import { toggleMenu } from "./menu";
 import * as model from "./model";
 import type { Style } from "./model";
+import { promptText } from "./prompt";
 import { isMac, type OutlineView } from "./view";
 
 const MOD = isMac ? "⌘" : "Ctrl+";
 
 export class Sidebar {
   private overview = el("ol", "overview");
+  private tags = el("div", "tag-chips");
+  private addTagButton = el("button", "add-style");
   private styles = el("ul", "styles");
   private addStyleButton = el("button", "add-style");
   /** The style whose settings are open for editing. */
@@ -23,12 +28,16 @@ export class Sidebar {
     this.addStyleButton.append(icon(Plus, 14), "New style");
     this.addStyleButton.addEventListener("click", () => this.addStyle());
 
-    // Two panes: the overview scrolls on its own, so styles stay put at the bottom.
+    this.addTagButton.append(icon(Plus, 14), "New tag");
+    this.addTagButton.addEventListener("click", () => this.addTag());
+
+    // The overview scrolls on its own, so styles and tags stay put at the bottom.
     root.append(
       section("overview-pane", "Overview", this.overview),
       section("styles-pane", "Styles", this.styles, this.addStyleButton),
+      section("tags-pane", "Tags", this.tags, this.addTagButton),
     );
-    // Redraw the styles once the user has finished with a field in them.
+    // Redraw the lists once the user has finished with a field in them.
     this.styles.addEventListener("focusout", (e) => {
       if (this.stylesStale && !this.styles.contains(e.relatedTarget as Node | null)) this.renderStyles();
     });
@@ -40,6 +49,7 @@ export class Sidebar {
     this.renderOverview();
     if (this.styles.contains(document.activeElement)) this.stylesStale = true;
     else this.renderStyles();
+    this.renderTags();
   }
 
   /** Highlights what applies to the selected rows (after the selection changes). */
@@ -51,6 +61,10 @@ export class Sidebar {
     const used = this.view.selectedStyles();
     for (const item of this.styles.querySelectorAll<HTMLElement>("[data-style-id]")) {
       item.classList.toggle("active", used.has(item.dataset.styleId || null));
+    }
+    const tagged = this.view.selectedTags();
+    for (const item of this.tags.querySelectorAll<HTMLElement>(".tag-chip")) {
+      item.classList.toggle("active", tagged.has(item.dataset.tag!));
     }
   }
 
@@ -74,6 +88,72 @@ export class Sidebar {
     });
     this.overview.replaceChildren(...items);
     this.updateSelection();
+  }
+
+  // -------------------------------------------------------------------------
+  // Tags
+  // -------------------------------------------------------------------------
+
+  /**
+   * Every tag as a chip, with how many rows have it. Clicking a chip adds the
+   * tag to (or removes it from) the selected rows; its ⌄ menu filters by the
+   * tag, renames it or deletes it.
+   */
+  private renderTags() {
+    this.tags.replaceChildren(...model.allTags(this.view.doc).map(({ tag, count }) => this.renderTag(tag, count)));
+    this.updateSelection();
+  }
+
+  private renderTag(tag: string, count: number): HTMLElement {
+    const filtering = this.view.filter.tags.includes(tag);
+    const chip = el("span", "tag-chip");
+    chip.dataset.tag = tag;
+    chip.classList.toggle("filtering", filtering);
+
+    const apply = el("button", "tag-apply");
+    apply.title = `Add “${tag}” to the selected rows, or remove it`;
+    if (filtering) apply.append(icon(ListFilter, 12));
+    apply.append(text("tag-name", tag), text("tag-count", String(count)));
+    // Keep the focus (and any text being edited) in the outline.
+    apply.addEventListener("mousedown", (e) => e.preventDefault());
+    apply.addEventListener("click", () => this.view.applyTag(tag));
+
+    const menu = iconButton(ChevronDown, "Filter, rename or delete", () =>
+      toggleMenu(menu, () => [
+        {
+          label: filtering ? "Stop filtering by this tag" : "Show only rows with this tag",
+          icon: ListFilter,
+          action: () => this.view.toggleTagFilter(tag),
+        },
+        { label: "Rename…", icon: Pencil, action: () => this.renameTag(tag) },
+        "separator",
+        { label: "Delete tag", icon: Trash2, danger: true, action: () => this.deleteTag(tag, count) },
+      ]),
+    );
+    menu.className = "tag-menu";
+    menu.addEventListener("mousedown", (e) => e.preventDefault());
+
+    chip.append(apply, menu);
+    return chip;
+  }
+
+  private async addTag() {
+    const name = await promptText("New tag", "");
+    if (name && !this.view.createTag(name)) {
+      await message(`There's already a tag called “${model.cleanTags([name])[0]}”.`, { title: "New tag" });
+    }
+  }
+
+  private async renameTag(tag: string) {
+    const name = await promptText(`Rename “${tag}” (on every row that has it)`, tag);
+    if (name) this.view.renameTag(tag, name);
+  }
+
+  private async deleteTag(tag: string, count: number) {
+    const used = count ? ` It will be removed from ${count} ${count === 1 ? "row" : "rows"}.` : "";
+    if (await ask(`Delete the tag “${tag}”?${used}`, { title: "Delete tag", kind: "warning", okLabel: "Delete" })) {
+      this.view.deleteTag(tag);
+    }
   }
 
   // -------------------------------------------------------------------------

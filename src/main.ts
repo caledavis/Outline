@@ -4,15 +4,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
-import { insertIcons } from "./icons";
-import { assignIds, newDoc, type OutlineDoc } from "./model";
+import { Filters } from "./filters";
+import { FileText, Globe, Plus, insertIcons } from "./icons";
+import { toggleMenu, type MenuEntry } from "./menu";
+import { allTags, assignIds, cleanTags, newDoc, type Link, type OutlineDoc } from "./model";
+import { promptText } from "./prompt";
 import { Sidebar } from "./sidebar";
 import { OutlineView, isMac } from "./view";
+import { chooseZoteroItems } from "./zotero";
 
 const FILTERS = [{ name: "Outline (OPML)", extensions: ["opml"] }];
 
 const view = new OutlineView(document.getElementById("outline")!);
 const sidebar = new Sidebar(document.getElementById("sidebar")!, view);
+const filters = new Filters(view);
 let path: string | null = null;
 let dirty = false;
 
@@ -34,6 +39,10 @@ view.onChange = () => {
   sidebar.refresh();
 };
 view.onSelectionChange = () => sidebar.updateSelection();
+view.onFilterChange = () => {
+  filters.update();
+  sidebar.refresh();
+};
 
 /** Asks before throwing away unsaved changes. Returns true if it's OK to continue. */
 async function confirmDiscard(): Promise<boolean> {
@@ -97,25 +106,6 @@ getCurrentWindow().onCloseRequested(async (event) => {
 // Formatting
 // ---------------------------------------------------------------------------
 
-const promptDialog = document.getElementById("prompt") as HTMLDialogElement;
-const promptInput = document.getElementById("prompt-input") as HTMLInputElement;
-
-/** A small text-entry dialog. Resolves to null if cancelled. */
-function promptText(label: string, value: string): Promise<string | null> {
-  document.getElementById("prompt-label")!.textContent = label;
-  promptInput.value = value;
-  promptDialog.returnValue = "";
-  promptDialog.showModal();
-  promptInput.select();
-  return new Promise((resolve) => {
-    promptDialog.addEventListener(
-      "close",
-      () => resolve(promptDialog.returnValue === "ok" ? promptInput.value.trim() : null),
-      { once: true },
-    );
-  });
-}
-
 async function editLink() {
   const editor = view.editor;
   if (!editor) return;
@@ -131,6 +121,70 @@ async function editLink() {
 }
 
 view.onLinkRequest = editLink;
+view.onCiteRequest = () => cite();
+view.onTagRequest = (cell) => toggleMenu(cell, tagMenu);
+view.onAttachRequest = (cell) => toggleMenu(cell, attachMenu);
+
+// ---------------------------------------------------------------------------
+// Tags, attachments and Zotero
+// ---------------------------------------------------------------------------
+
+/** A checklist of tags for the selected rows, plus a way to make a new one. */
+function tagMenu(): MenuEntry[] {
+  const has = view.selectedTags();
+  const entries: MenuEntry[] = allTags(view.doc).map(({ tag }) => ({
+    label: tag,
+    checked: has.has(tag),
+    action: () => view.applyTag(tag),
+  }));
+  if (entries.length) entries.push("separator");
+  entries.push({ label: "New tag…", icon: Plus, action: newTagForRows });
+  return entries;
+}
+
+async function newTagForRows() {
+  const name = await promptText("New tag", "");
+  const [tag] = cleanTags([name ?? ""]);
+  if (tag) view.applyTag(tag);
+}
+
+function showTagMenu() {
+  const anchor = view.tagMenuAnchor();
+  if (anchor) toggleMenu(anchor, tagMenu);
+}
+
+async function attachFiles() {
+  const paths = await open({ multiple: true, directory: false, title: "Attach files" });
+  if (!paths?.length) return;
+  view.addLinks(paths.map((path): Link => ({ kind: "file", target: path, title: path.split(/[\\/]/).pop()! })));
+}
+
+async function attachWebLink() {
+  const address = await promptText("Web address", "");
+  if (!address) return;
+  const href = /^[a-z][a-z0-9+.-]*:/i.test(address) ? address : `https://${address}`;
+  let title = href;
+  try {
+    const url = new URL(href);
+    title = url.hostname.replace(/^www\./, "") + (url.pathname.length > 1 ? url.pathname : "");
+  } catch {
+    // Not a valid address; show it as typed.
+  }
+  view.addLinks([{ kind: "url", target: href, title: title.length > 40 ? `${title.slice(0, 39)}…` : title }]);
+}
+
+function attachMenu() {
+  return [
+    { label: "File…", icon: FileText, action: attachFiles },
+    { label: "Web link…", icon: Globe, action: attachWebLink },
+  ];
+}
+
+async function cite() {
+  if (!view.selection.size) return;
+  const links = await chooseZoteroItems();
+  if (links.length) view.addLinks(links);
+}
 
 // ---------------------------------------------------------------------------
 // Sidebar
@@ -156,7 +210,7 @@ function toggleSidebar() {
 // Toolbar
 // ---------------------------------------------------------------------------
 
-const actions: Record<string, () => void> = {
+const actions: Record<string, (button: HTMLButtonElement) => void> = {
   sidebar: toggleSidebar,
   new: newFile,
   open: openFile,
@@ -167,6 +221,9 @@ const actions: Record<string, () => void> = {
   strike: () => view.editor?.chain().focus().toggleStrike().run(),
   link: editLink,
   note: () => view.toggleNote(),
+  attach: (button) => toggleMenu(button, attachMenu),
+  cite,
+  // The filter button handles its own clicks (see filters.ts).
 };
 
 const toolbar = document.querySelector<HTMLElement>(".toolbar")!;
@@ -177,7 +234,7 @@ for (const button of toolbar.querySelectorAll<HTMLButtonElement>("button")) {
   button.title = button.title.replace(/Mod\+/g, isMac ? "⌘" : "Ctrl+");
   // Stop the button taking focus away from the text being edited.
   button.addEventListener("mousedown", (e) => e.preventDefault());
-  button.addEventListener("click", () => actions[button.dataset.action!]?.());
+  button.addEventListener("click", () => actions[button.dataset.action!]?.(button));
 }
 
 view.onEditorChange = (editor: Editor | null) => {
@@ -219,8 +276,21 @@ window.addEventListener(
       toggleSidebar();
       return;
     }
+    if (document.querySelector("dialog[open]")) return;
+    if (mod && key === "f") {
+      e.preventDefault();
+      e.stopPropagation();
+      filters.focusSearch();
+      return;
+    }
+    if (mod && e.shiftKey && key === "t") {
+      e.preventDefault();
+      e.stopPropagation();
+      showTagMenu();
+      return;
+    }
     const target = e.target as HTMLElement;
-    if (promptDialog.open || target.isContentEditable || target.tagName === "INPUT") return;
+    if (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
     if (view.handleKey(e)) e.preventDefault();
   },
   true,

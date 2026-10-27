@@ -2,8 +2,9 @@
 // means only the ones we use end up in the app.
 
 import {
-  Bold, ChevronDown, ChevronRight, ChevronUp, FilePlus, FolderOpen, GripVertical, Italic,
-  Link, PanelLeft, Pencil, Plus, RotateCcw, Save, StickyNote, Strikethrough, Trash2,
+  Bold, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText,
+  FolderOpen, Globe, GripVertical, Hash, Italic, Link, List, ListFilter, PanelLeft, Paperclip,
+  Pencil, Plus, RotateCcw, Save, Search, SquareCheck, StickyNote, Strikethrough, Tag, Trash2, Type,
   Underline, X, createElement,
 } from "lucide";
 
@@ -21,9 +22,17 @@ const BY_NAME: Record<string, IconNode> = {
   link: Link,
   note: StickyNote,
   sidebar: PanelLeft,
+  tag: Tag,
+  attach: Paperclip,
+  cite: BookOpen,
+  search: Search,
+  filter: ListFilter,
 };
 
-export { Bold, ChevronDown, ChevronRight, ChevronUp, GripVertical, Italic, Pencil, Plus, RotateCcw, Trash2, X };
+export {
+  Bold, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, FileText, Globe,
+  GripVertical, Hash, Italic, List, ListFilter, Paperclip, Pencil, Plus, RotateCcw, SquareCheck, Tag, Trash2, Type, X,
+};
 
 const cache = new Map<IconNode, SVGElement>();
 

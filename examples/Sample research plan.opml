@@ -4,27 +4,32 @@
     <title>Sample research plan</title>
     <ol:column id="topic" name="Topic"/>
     <ol:column id="c2" name="Source" width="180"/>
-    <ol:column id="c3" name="Status" width="120"/>
-    <ol:style id="s1" name="Heading" size="18" bold="true"/>
-    <ol:style id="s2" name="Important" color="#c2410c" bold="true"/>
-    <ol:style id="s3" name="Highlight" background="#fff3bf"/>
-    <ol:style id="s4" name="Muted" size="12" color="#8a8a8e" italic="true"/>
+    <ol:column id="c3" name="Status" width="120" type="select" options="Not started&#10;Reading&#10;Drafting&#10;Done"/>
+    <ol:column id="c4" name="Due" width="120" type="date"/>
+    <ol:column id="c5" name="Done" width="70" type="checkbox"/>
+    <ol:column id="c6" name="Tags" width="160" type="tags"/>
+    <ol:column id="c7" name="Links" width="200" type="links"/>
+    <ol:style id="s1" name="Heading 1" color="#de394b" bold="true"/>
+    <ol:style id="s2" name="Heading 2" color="#cf5334" bold="true"/>
+    <ol:style id="s3" name="Heading 3" color="#bd6526" bold="true"/>
+    <ol:style id="s4" name="Heading 4" color="#a8742a" bold="true"/>
+    <ol:style id="s5" name="Quote" color="#0a898f"/>
   </head>
   <body>
-    <outline text="1. Introduction" ol:col-c3="Drafting" ol:style="s1">
-      <outline text="Research question" _note="&lt;p&gt;How does &lt;em&gt;X&lt;/em&gt; affect &lt;em&gt;Y&lt;/em&gt; in small communities?&lt;/p&gt;"/>
-      <outline text="Why it matters" ol:col-c2="Smith 2021, p. 12" ol:style="s3"/>
+    <outline text="1. Introduction" ol:col-c3="Drafting" ol:col-c4="2026-11-20" ol:style="s1">
+      <outline text="Research question" ol:col-c5="true" category="core" _note="&lt;p&gt;How does &lt;em&gt;X&lt;/em&gt; affect &lt;em&gt;Y&lt;/em&gt; in small communities?&lt;/p&gt;"/>
+      <outline text="“Small places are where the effect is clearest.”" ol:col-c2="Smith 2021, p. 12" ol:style="s5"/>
     </outline>
     <outline text="2. Literature review" ol:col-c3="Reading" ol:style="s1">
-      <outline text="Early studies" ol:col-c2="Jones 1998">
-        <outline text="Key finding: &lt;u&gt;sample sizes were small&lt;/u&gt;" ol:style="s2"/>
+      <outline text="Early studies" ol:col-c2="Jones 1998" ol:style="s2" category="to-read,history" ol:links="[{&quot;kind&quot;:&quot;url&quot;,&quot;target&quot;:&quot;https://en.wikipedia.org/wiki/Outline_(list)&quot;,&quot;title&quot;:&quot;en.wikipedia.org/wiki/Outline_(list)&quot;}]">
+        <outline text="Key finding: &lt;u&gt;sample sizes were small&lt;/u&gt;" ol:style="s3"/>
         <outline text="Critique by &lt;a href=&quot;https://example.com&quot;&gt;Lee&lt;/a&gt;" ol:col-c2="Lee 2004"/>
       </outline>
-      <outline text="Recent work" ol:collapsed="true">
-        <outline text="Meta-analysis" ol:col-c2="Patel 2023"/>
-        <outline text="&lt;s&gt;Survey of practitioners&lt;/s&gt; (out of scope)" ol:style="s4"/>
+      <outline text="Recent work" ol:style="s2" ol:collapsed="true">
+        <outline text="Meta-analysis" ol:col-c2="Patel 2023" category="to-read"/>
+        <outline text="&lt;s&gt;Survey of practitioners&lt;/s&gt; (out of scope)"/>
       </outline>
     </outline>
-    <outline text="3. Method" ol:col-c3="Not started" ol:style="s1"/>
+    <outline text="3. Method" ol:col-c3="Not started" ol:col-c4="2027-01-15" ol:style="s1"/>
   </body>
 </opml>

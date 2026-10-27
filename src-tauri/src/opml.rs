@@ -7,8 +7,11 @@
 //! - `text`  — the row's main ("Topic") column, as inline HTML (allowed by the spec)
 //! - `_note` — the row's note, a widely used convention (OmniOutliner, Workflowy…)
 //!
-//! Anything OPML has no standard place for (extra columns, styles, collapsed
-//! rows) is stored in elements and attributes under our own `ol:` namespace. Other apps ignore
+//! - `category` — the row's tags, comma-separated (from the OPML 2.0 spec)
+//!
+//! Anything OPML has no standard place for (extra columns, styles, links,
+//! collapsed rows) is stored in elements and attributes under our own `ol:`
+//! namespace. Other apps ignore
 //! those, so files stay readable everywhere.
 
 use std::collections::BTreeMap;
@@ -31,6 +34,9 @@ pub struct Document {
     pub columns: Vec<Column>,
     #[serde(default)]
     pub styles: Vec<Style>,
+    /// Tags created in the Tags pane, including ones no row uses yet.
+    #[serde(default)]
+    pub tags: Vec<String>,
     pub rows: Vec<Row>,
 }
 
@@ -40,7 +46,43 @@ pub struct Column {
     pub name: String,
     #[serde(default)]
     pub width: Option<u32>,
+    /// One of `COLUMN_TYPES`.
+    #[serde(rename = "type", default = "text_type")]
+    pub kind: String,
+    /// The choices for a pop-up list ("select") column.
+    #[serde(default)]
+    pub options: Vec<String>,
+    /// Whether a Zotero column shows each item's notes.
+    #[serde(rename = "showNotes", default)]
+    pub show_notes: bool,
 }
+
+/// "tags", "links" and "zotero" columns show the row's tags, file and web links,
+/// and Zotero links (which are stored on the row, not in the column's cells).
+pub const COLUMN_TYPES: [&str; 8] = ["text", "checkbox", "number", "date", "select", "tags", "links", "zotero"];
+
+fn text_type() -> String {
+    "text".into()
+}
+
+/// Something a row links to: a file, a web page, or an item in Zotero.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Link {
+    /// One of `LINK_KINDS`.
+    pub kind: String,
+    /// A file path, or a URL (`zotero://select/…` for Zotero items).
+    pub target: String,
+    /// The short label shown on the row.
+    pub title: String,
+    /// More detail, e.g. a Zotero item's full title.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+    /// A Zotero item's notes, as plain text (copied from Zotero when linked).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+}
+
+pub const LINK_KINDS: [&str; 3] = ["file", "url", "zotero"];
 
 /// A named look (text size, colour, weight…) that can be applied to rows.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -76,6 +118,10 @@ pub struct Row {
     #[serde(default)]
     pub style: Option<String>,
     #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub links: Vec<Link>,
+    #[serde(default)]
     pub children: Vec<Row>,
 }
 
@@ -87,7 +133,7 @@ pub fn parse(xml: &str) -> Result<Document, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
-    let mut doc = Document { title: String::new(), columns: Vec::new(), styles: Vec::new(), rows: Vec::new() };
+    let mut doc = Document { title: String::new(), columns: Vec::new(), styles: Vec::new(), tags: Vec::new(), rows: Vec::new() };
     // Rows whose closing `</outline>` we haven't reached yet, outermost first.
     let mut open: Vec<Row> = Vec::new();
     let mut is_opml = false;
@@ -113,6 +159,12 @@ pub fn parse(xml: &str) -> Result<Document, String> {
                 }
                 "ol:column" => doc.columns.push(column_from(&e)?),
                 "ol:style" => doc.styles.push(style_from(&e)?),
+                "ol:tag" => {
+                    let name = attributes(&e)?.into_iter().find(|(key, _)| key == "name").map(|(_, v)| v);
+                    if let Some(name) = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
+                        doc.tags.push(name);
+                    }
+                }
                 _ => {}
             },
             Event::End(e) if e.name().as_ref() == "outline" => {
@@ -129,7 +181,7 @@ pub fn parse(xml: &str) -> Result<Document, String> {
     }
     // OPML files from other apps only have the one standard column.
     if !doc.columns.iter().any(|c| c.id == TOPIC) {
-        doc.columns.insert(0, Column { id: TOPIC.into(), name: "Topic".into(), width: None });
+        doc.columns.insert(0, Column { id: TOPIC.into(), name: "Topic".into(), width: None, kind: text_type(), options: Vec::new(), show_notes: false });
     }
     Ok(doc)
 }
@@ -163,6 +215,14 @@ fn row_from(e: &BytesStart) -> Result<Row, String> {
             "_note" => row.note = note_to_html(&value),
             "ol:collapsed" => row.collapsed = value == "true",
             "ol:style" if is_valid_id(&value) => row.style = Some(value),
+            "category" => {
+                row.tags = value.split(',').map(str::trim).filter(|t| !t.is_empty()).map(String::from).collect();
+            }
+            "ol:links" => {
+                // Links are stored as JSON; anything unreadable is skipped.
+                let links: Vec<Link> = serde_json::from_str(&value).unwrap_or_default();
+                row.links = links.into_iter().filter(|l| LINK_KINDS.contains(&l.kind.as_str())).collect();
+            }
             _ => {
                 if let Some(column) = key.strip_prefix("ol:col-") {
                     row.cells.insert(column.into(), value);
@@ -174,12 +234,17 @@ fn row_from(e: &BytesStart) -> Result<Row, String> {
 }
 
 fn column_from(e: &BytesStart) -> Result<Column, String> {
-    let mut column = Column { id: String::new(), name: String::new(), width: None };
+    let mut column = Column { id: String::new(), name: String::new(), width: None, kind: text_type(), options: Vec::new(), show_notes: false };
     for (key, value) in attributes(e)? {
         match key.as_str() {
             "id" => column.id = value,
             "name" => column.name = value,
             "width" => column.width = value.parse().ok(),
+            "type" if COLUMN_TYPES.contains(&value.as_str()) => column.kind = value,
+            "options" => {
+                column.options = value.lines().map(str::trim).filter(|o| !o.is_empty()).map(String::from).collect();
+            }
+            "show-notes" => column.show_notes = value == "true",
             _ => {}
         }
     }
@@ -240,6 +305,15 @@ pub fn write(doc: &Document) -> Result<String, String> {
         if let Some(width) = column.width {
             out += &format!(" width=\"{width}\"");
         }
+        if column.kind != "text" && COLUMN_TYPES.contains(&column.kind.as_str()) {
+            out += &format!(" type=\"{}\"", column.kind);
+        }
+        if !column.options.is_empty() {
+            out += &format!(" options=\"{}\"", attr(&column.options.join("\n")));
+        }
+        if column.show_notes {
+            out += " show-notes=\"true\"";
+        }
         out += "/>\n";
     }
     for style in &doc.styles {
@@ -260,6 +334,9 @@ pub fn write(doc: &Document) -> Result<String, String> {
             out += &format!(" background=\"{background}\"");
         }
         out += "/>\n";
+    }
+    for tag in &doc.tags {
+        out += &format!("    <ol:tag name=\"{}\"/>\n", attr(tag));
     }
     out += "  </head>\n  <body>\n";
     for row in &doc.rows {
@@ -286,6 +363,14 @@ fn write_row(out: &mut String, row: &Row, columns: &[Column], depth: usize) {
     }
     if let Some(style) = row.style.as_ref().filter(|s| is_valid_id(s)) {
         *out += &format!(" ol:style=\"{style}\"");
+    }
+    if !row.tags.is_empty() {
+        let tags: Vec<String> = row.tags.iter().map(|t| t.replace(',', " ")).collect();
+        *out += &format!(" category=\"{}\"", attr(&tags.join(",")));
+    }
+    if !row.links.is_empty() {
+        let json = serde_json::to_string(&row.links).unwrap_or_default();
+        *out += &format!(" ol:links=\"{}\"", attr(&json));
     }
 
     if row.children.is_empty() {
@@ -327,6 +412,17 @@ mod tests {
         child.cells.insert(TOPIC.into(), "Child with <em>emphasis</em> & \"quotes\"".into());
         child.cells.insert("c2".into(), "Smith 2021".into());
         child.note = "<p>Line one</p><p>Line\ttwo\nthree</p>".into();
+        child.tags = vec!["to-read".into(), "method & theory".into()];
+        child.links = vec![
+            Link { kind: "file".into(), target: "/Users/me/Papers/smith \"2021\".pdf".into(), title: "smith.pdf".into(), ..Link::default() },
+            Link {
+                kind: "zotero".into(),
+                target: "zotero://select/library/items/ABCD1234".into(),
+                title: "Smith 2021".into(),
+                detail: "A <long> & winding title".into(),
+                notes: vec!["\\cite{smith2021}".into(), "Line one\nline \"two\"".into()],
+            },
+        ];
 
         let mut parent = Row::default();
         parent.cells.insert(TOPIC.into(), "<strong>Chapter 1</strong>".into());
@@ -340,8 +436,15 @@ mod tests {
         Document {
             title: "Thesis".into(),
             columns: vec![
-                Column { id: TOPIC.into(), name: "Topic".into(), width: None },
-                Column { id: "c2".into(), name: "Source & page".into(), width: Some(180) },
+                Column { id: TOPIC.into(), name: "Topic".into(), width: None, kind: text_type(), options: Vec::new(), show_notes: false },
+                Column {
+                    id: "c2".into(),
+                    name: "Source & page".into(),
+                    width: Some(180),
+                    kind: "select".into(),
+                    options: vec!["Smith 2021".into(), "Jones & Lee".into()],
+                    show_notes: true,
+                },
             ],
             styles: vec![
                 Style { id: "s1".into(), name: "Heading".into(), size: Some(18), bold: true, ..Style::default() },
@@ -354,6 +457,7 @@ mod tests {
                     ..Style::default()
                 },
             ],
+            tags: vec!["to-read".into(), "unused & spare".into()],
             rows: vec![parent, empty],
         }
     }
@@ -383,10 +487,27 @@ mod tests {
     #[test]
     fn reads_example_file() {
         let doc = parse(include_str!("../../examples/Sample research plan.opml")).unwrap();
-        assert_eq!(doc.columns.len(), 3);
+        assert_eq!(doc.columns.len(), 7);
+        assert_eq!(doc.columns[5].kind, "tags");
+        assert_eq!(doc.columns[2].kind, "select");
+        assert_eq!(doc.columns[2].options, ["Not started", "Reading", "Drafting", "Done"]);
+        assert_eq!(doc.rows[1].children[0].tags, ["to-read", "history"]);
+        assert_eq!(doc.rows[1].children[0].links[0].kind, "url");
         assert_eq!(doc.rows.len(), 3);
         assert!(doc.rows[1].children[1].collapsed);
         assert_eq!(doc.rows[0].children[1].cells["c2"], "Smith 2021, p. 12");
+    }
+
+    #[test]
+    fn reads_tags_and_skips_bad_links() {
+        let xml = r#"<opml version="2.0"><head/><body>
+              <outline text="x" category=" a, b ,," ol:links='[{"kind":"evil","target":"x","title":"x"},{"kind":"url","target":"https://e.com","title":"e"}]'/>
+              <outline text="y" ol:links="not json"/>
+            </body></opml>"#;
+        let doc = parse(xml).unwrap();
+        assert_eq!(doc.rows[0].tags, ["a", "b"]);
+        assert_eq!(doc.rows[0].links.len(), 1);
+        assert!(doc.rows[1].links.is_empty());
     }
 
     #[test]

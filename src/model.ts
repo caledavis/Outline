@@ -1,13 +1,48 @@
 // The outline's data and the operations that reshape it. Nothing in here
 // touches the screen; the view calls these functions and then redraws.
 
+import { plainText } from "./sanitize";
+
 /** The id of the main column (stored as OPML's standard `text` attribute). */
 export const TOPIC = "topic";
+
+/**
+ * "tags", "links" and "zotero" columns show the row's tags, its file and web
+ * links, and its Zotero links. These live on the row (`Row.tags`, `Row.links`),
+ * not in the column's cells, so deleting the column loses nothing.
+ */
+export type ColumnType = "text" | "checkbox" | "number" | "date" | "select" | "tags" | "links" | "zotero";
+
+/** Columns that show something kept on the row; there's at most one of each. */
+export type RowDataType = "tags" | "links" | "zotero";
+
+export function isRowDataType(type: ColumnType): type is RowDataType {
+  return type === "tags" || type === "links" || type === "zotero";
+}
 
 export interface Column {
   id: string;
   name: string;
   width?: number | null;
+  /** How the column's cells are edited and shown (the Topic column is always text). */
+  type?: ColumnType;
+  /** The choices for a pop-up list ("select") column. */
+  options?: string[];
+  /** Whether a Zotero column shows each item's notes. */
+  showNotes?: boolean;
+}
+
+/** Something a row links to. */
+export interface Link {
+  kind: "file" | "url" | "zotero";
+  /** A file path, or a URL (zotero://select/… for Zotero items). */
+  target: string;
+  /** The short label shown on the row. */
+  title: string;
+  /** More detail, e.g. a Zotero item's full title. */
+  detail?: string;
+  /** A Zotero item's notes, as plain text (copied from Zotero when linked). */
+  notes?: string[];
 }
 
 /** A named look (text size, colour, weight…) that can be applied to rows. */
@@ -37,6 +72,8 @@ export interface Row {
   collapsed: boolean;
   /** The id of the style applied to this row, if any. */
   style?: string | null;
+  tags?: string[];
+  links?: Link[];
   children: Row[];
 }
 
@@ -44,6 +81,8 @@ export interface OutlineDoc {
   title: string;
   columns: Column[];
   styles: Style[];
+  /** Tags created in the Tags pane, including ones no row uses yet. */
+  tags?: string[];
   rows: Row[];
 }
 
@@ -55,13 +94,21 @@ export function newDoc(): OutlineDoc {
   return { title: "", columns: [{ id: TOPIC, name: "Topic" }], styles: starterStyles(), rows: [newRow()] };
 }
 
-/** A few examples to start a new outline with. */
+/**
+ * The styles a new outline starts with, all at the normal text size. The
+ * colours share one perceived lightness (about OKLCH L = 0.60), so they read
+ * at about 4:1 contrast on both the light and dark backgrounds. Headings step
+ * from crimson towards ochre and grow less saturated at each level, so the
+ * more important a heading, the more vivid it is. Quotes are teal: opposite
+ * the warm headings, and unlike the blue used for links.
+ */
 function starterStyles(): Style[] {
   return [
-    { id: "s1", name: "Heading", size: 18, bold: true },
-    { id: "s2", name: "Important", color: "#c2410c", bold: true },
-    { id: "s3", name: "Highlight", background: "#fff3bf" },
-    { id: "s4", name: "Muted", size: 12, color: "#8a8a8e", italic: true },
+    { id: "s1", name: "Heading 1", color: "#de394b", bold: true },
+    { id: "s2", name: "Heading 2", color: "#cf5334", bold: true },
+    { id: "s3", name: "Heading 3", color: "#bd6526", bold: true },
+    { id: "s4", name: "Heading 4", color: "#a8742a", bold: true },
+    { id: "s5", name: "Quote", color: "#0a898f" },
   ];
 }
 
@@ -99,6 +146,23 @@ export function locate(doc: OutlineDoc, id: string): Location | null {
     return null;
   };
   return search(doc.rows, null);
+}
+
+/**
+ * The rows that match, in display order, with their ancestors (marked as
+ * `context`) so they're shown in place. Collapsed rows are opened up.
+ */
+export function filteredRows(
+  doc: OutlineDoc,
+  matches: (row: Row) => boolean,
+): { row: Row; depth: number; context: boolean }[] {
+  const visit = (rows: Row[], depth: number): { row: Row; depth: number; context: boolean }[] =>
+    rows.flatMap((row) => {
+      const below = visit(row.children, depth + 1);
+      const self = matches(row);
+      return self || below.length ? [{ row, depth, context: !self }, ...below] : [];
+    });
+  return visit(doc.rows, 0);
 }
 
 /** Rows in display order, skipping the children of collapsed rows. */
@@ -288,4 +352,205 @@ export function moveStyle(doc: OutlineDoc, id: string, delta: -1 | 1): boolean {
   if (index < 0 || target < 0 || target >= doc.styles.length) return false;
   [doc.styles[index], doc.styles[target]] = [doc.styles[target], doc.styles[index]];
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Column types
+// ---------------------------------------------------------------------------
+
+export function columnType(column: Column): ColumnType {
+  return column.type ?? "text";
+}
+
+/** A cell's value as plain text, whatever the column's type. */
+export function cellText(column: Column, value: string | undefined): string {
+  if (!value) return "";
+  switch (columnType(column)) {
+    case "text": return plainText(value);
+    case "checkbox": return value === "true" ? "Yes" : "";
+    case "date": return formatDate(value);
+    case "number": return formatNumber(value);
+    case "tags":
+    case "links":
+    case "zotero":
+      return "";
+    default: return value;
+  }
+}
+
+export function formatNumber(value: string): string {
+  const n = Number(value);
+  return value !== "" && Number.isFinite(n) ? n.toLocaleString() : value;
+}
+
+export function formatDate(value: string): string {
+  const date = new Date(`${value}T00:00:00`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/**
+ * Changes a column's type, converting its cells where possible (values that
+ * can't be converted are cleared). Switching to a pop-up list makes a choice
+ * from each different value already in the column.
+ */
+export function setColumnType(doc: OutlineDoc, id: string, type: ColumnType): boolean {
+  const column = doc.columns.find((c) => c.id === id);
+  if (!column || column.id === TOPIC || columnType(column) === type) return false;
+  // Tags, links and Zotero columns have no values of their own to convert.
+  if (isRowDataType(type) || isRowDataType(columnType(column))) return false;
+  const options = new Set(column.options ?? []);
+  const from = columnType(column);
+
+  walk(doc.rows, (row) => {
+    const old = row.cells[id];
+    if (!old) return;
+    const text = (from === "text" ? plainText(old) : from === "checkbox" ? "Yes" : old).trim();
+    let value = "";
+    switch (type) {
+      case "text":
+        value = escapeHtml(text);
+        break;
+      case "checkbox":
+        value = /^(true|yes|y|x|1|✓|✔|done)$/i.test(text) ? "true" : "";
+        break;
+      case "number": {
+        const n = parseFloat(text.replace(/,/g, ""));
+        value = Number.isFinite(n) ? String(n) : "";
+        break;
+      }
+      case "date": {
+        const time = Date.parse(text);
+        value = /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : isNaN(time) ? "" : toIsoDate(new Date(time));
+        break;
+      }
+      case "select":
+        value = text.replace(/\s+/g, " ");
+        if (value) options.add(value);
+        break;
+    }
+    if (value) row.cells[id] = value;
+    else delete row.cells[id];
+  });
+
+  column.type = type;
+  column.options = type === "select" ? [...options] : [];
+  return true;
+}
+
+function toIsoDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** Sets a pop-up list's choices. Cells holding a removed choice are cleared. */
+export function setColumnOptions(doc: OutlineDoc, id: string, options: string[]): boolean {
+  const column = doc.columns.find((c) => c.id === id);
+  if (!column) return false;
+  const cleaned = [...new Set(options.map((o) => o.trim().replace(/\s+/g, " ")).filter(Boolean))];
+  if (JSON.stringify(cleaned) === JSON.stringify(column.options ?? [])) return false;
+  column.options = cleaned;
+  walk(doc.rows, (row) => {
+    if (row.cells[id] && !cleaned.includes(row.cells[id])) delete row.cells[id];
+  });
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Tags and links
+// ---------------------------------------------------------------------------
+
+/** The column showing the rows' tags, links or Zotero links, if there is one. */
+export function rowDataColumn(doc: OutlineDoc, type: RowDataType): Column | undefined {
+  return doc.columns.find((c) => columnType(c) === type);
+}
+
+const ROW_DATA_COLUMNS: Record<RowDataType, Partial<Column>> = {
+  tags: { name: "Tags", width: 180 },
+  links: { name: "Links", width: 200 },
+  zotero: { name: "Zotero", width: 240, showNotes: true },
+};
+
+/** Adds the column for tags, links or Zotero links if there isn't one yet. Returns true if it was added. */
+export function ensureRowDataColumn(doc: OutlineDoc, type: RowDataType): boolean {
+  if (rowDataColumn(doc, type)) return false;
+  Object.assign(addColumn(doc), ROW_DATA_COLUMNS[type], { type });
+  return true;
+}
+
+/**
+ * Adds a Tags, Links or Zotero column for any rows' tags or links that don't
+ * have one (e.g. in outlines made before these columns existed).
+ */
+export function addMissingRowDataColumns(doc: OutlineDoc) {
+  const needed = new Set<RowDataType>();
+  walk(doc.rows, (row) => {
+    if (row.tags?.length) needed.add("tags");
+    for (const link of row.links ?? []) needed.add(linkColumnType(link));
+  });
+  for (const type of needed) ensureRowDataColumn(doc, type);
+}
+
+/** Moves a column to just before or after another one. */
+export function moveColumn(doc: OutlineDoc, id: string, targetId: string, after: boolean): boolean {
+  const order = doc.columns.map((c) => c.id).join();
+  const from = doc.columns.findIndex((c) => c.id === id);
+  if (from < 0 || id === targetId || !doc.columns.some((c) => c.id === targetId)) return false;
+  const [column] = doc.columns.splice(from, 1);
+  const to = doc.columns.findIndex((c) => c.id === targetId) + (after ? 1 : 0);
+  doc.columns.splice(to, 0, column);
+  return doc.columns.map((c) => c.id).join() !== order;
+}
+
+/** Which column a link is shown in. */
+export function linkColumnType(link: Link): RowDataType {
+  return link.kind === "zotero" ? "zotero" : "links";
+}
+
+/** Tidies tags typed by the user: no commas (they separate tags in the file), no repeats. */
+export function cleanTags(tags: string[]): string[] {
+  return [...new Set(tags.map((t) => t.replace(/[,\s]+/g, " ").trim()).filter(Boolean))];
+}
+
+/** Every tag (created or used), with how many rows have it, alphabetically. */
+export function allTags(doc: OutlineDoc): { tag: string; count: number }[] {
+  const counts = new Map<string, number>((doc.tags ?? []).map((tag) => [tag, 0]));
+  walk(doc.rows, (row) => {
+    for (const tag of row.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+  });
+  return [...counts]
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => a.tag.localeCompare(b.tag, undefined, { sensitivity: "base" }));
+}
+
+/** Creates a tag. Returns false if the name is empty or the tag already exists. */
+export function defineTag(doc: OutlineDoc, name: string): boolean {
+  const [tag] = cleanTags([name]);
+  if (!tag || allTags(doc).some((t) => t.tag === tag)) return false;
+  doc.tags = [...(doc.tags ?? []), tag];
+  return true;
+}
+
+/** Renames a tag everywhere. Renaming it to an existing tag merges the two. */
+export function renameTag(doc: OutlineDoc, from: string, to: string): boolean {
+  const [tag] = cleanTags([to]);
+  if (!tag || tag === from) return false;
+  const rename = (tags: string[]) => cleanTags(tags.map((t) => (t === from ? tag : t)));
+  doc.tags = rename([...(doc.tags ?? []), from]);
+  walk(doc.rows, (row) => {
+    if (row.tags?.includes(from)) row.tags = rename(row.tags);
+  });
+  return true;
+}
+
+/** Deletes a tag, removing it from every row. */
+export function deleteTag(doc: OutlineDoc, name: string) {
+  doc.tags = (doc.tags ?? []).filter((t) => t !== name);
+  walk(doc.rows, (row) => {
+    if (row.tags?.includes(name)) row.tags = row.tags.filter((t) => t !== name);
+  });
 }
