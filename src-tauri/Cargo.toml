@@ -1,6 +1,6 @@
 [package]
 name = "outline"
-version = "0.1.0"
+version = "0.1.1"
 description = "A lightweight outliner for planning research"
 authors = ["Cale Davis"]
 license = "EUPL-1.2"
