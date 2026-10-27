@@ -27,8 +27,6 @@ export interface OutlineDoc {
   rows: Row[];
 }
 
-export type DropPosition = "before" | "after" | "inside";
-
 export function newRow(): Row {
   return { id: crypto.randomUUID(), cells: {}, note: "", collapsed: false, children: [] };
 }
@@ -86,7 +84,8 @@ export function visibleRows(doc: OutlineDoc): { row: Row; depth: number }[] {
   return result;
 }
 
-function contains(ancestor: Row, id: string): boolean {
+/** Whether `id` is somewhere among the descendants of `ancestor`. */
+export function contains(ancestor: Row, id: string): boolean {
   return ancestor.children.some((child) => child.id === id || contains(child, id));
 }
 
@@ -129,20 +128,34 @@ export function moveBy(doc: OutlineDoc, id: string, delta: -1 | 1): boolean {
   return true;
 }
 
-/** Moves a row (with its children) next to or inside another row. */
-export function moveTo(doc: OutlineDoc, id: string, targetId: string, position: DropPosition): boolean {
+/**
+ * Moves a row (with its children) to position `index` among the children of
+ * `parentId` (or the top level when null). `index` counts the row's current
+ * position, as if it hadn't been removed yet.
+ */
+export function moveRow(doc: OutlineDoc, id: string, parentId: string | null, index: number): boolean {
   const loc = locate(doc, id);
-  if (!loc || id === targetId || contains(loc.row, targetId)) return false;
-  loc.siblings.splice(loc.index, 1);
+  if (!loc) return false;
+  const parent = parentId ? locate(doc, parentId)?.row : null;
+  if (parentId && (!parent || parent === loc.row || contains(loc.row, parentId))) return false;
 
-  const target = locate(doc, targetId)!;
-  if (position === "inside") {
-    target.row.children.unshift(loc.row);
-    target.row.collapsed = false;
-  } else {
-    target.siblings.splice(target.index + (position === "after" ? 1 : 0), 0, loc.row);
-  }
+  const siblings = parent ? parent.children : doc.rows;
+  if (siblings === loc.siblings && loc.index < index) index--;
+  if (siblings === loc.siblings && loc.index === index) return false; // it wouldn't move
+
+  loc.siblings.splice(loc.index, 1);
+  siblings.splice(index, 0, loc.row);
+  if (parent) parent.collapsed = false;
   return true;
+}
+
+/** The row and its ancestors, outermost first; `path(…)[d]` is the ancestor at depth d. */
+export function path(doc: OutlineDoc, id: string): Row[] {
+  const result: Row[] = [];
+  for (let loc = locate(doc, id); loc; loc = loc.parent ? locate(doc, loc.parent.id) : null) {
+    result.unshift(loc.row);
+  }
+  return result;
 }
 
 export function removeRow(doc: OutlineDoc, id: string): boolean {

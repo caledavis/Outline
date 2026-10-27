@@ -5,8 +5,9 @@ import type { Editor } from "@tiptap/core";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { createEditor, editorHtml, type EditorKind } from "./editor";
+import { ChevronDown, ChevronRight, GripVertical, Plus, X, icon } from "./icons";
 import * as model from "./model";
-import { TOPIC, type DropPosition, type OutlineDoc, type Row } from "./model";
+import { TOPIC, type Column, type OutlineDoc, type Row } from "./model";
 import { sanitize } from "./sanitize";
 
 /** Field name used for a row's note (every other field is a column id). */
@@ -26,6 +27,26 @@ interface Editing {
 
 type CursorPosition = "start" | "end" | number;
 
+interface Drag {
+  rowId: string;
+  /** The dragged row's depth and the pointer's x position when the drag began. */
+  depth: number;
+  startX: number;
+}
+
+/** Where a dragged row would land if dropped now. */
+interface DropPlacement {
+  parentId: string | null;
+  index: number;
+  depth: number;
+  /** Vertical position of the gap, in the outline's scrolling coordinates. */
+  y: number;
+}
+
+const GUTTER_PX = 28;
+const DEFAULT_COLUMN_PX = 160;
+const MIN_COLUMN_PX = 60;
+
 export class OutlineView {
   doc: OutlineDoc = model.newDoc();
   selectedId: string | null = null;
@@ -42,7 +63,8 @@ export class OutlineView {
   private openNoteId: string | null = null;
   private undoStack: string[] = [];
   private redoStack: string[] = [];
-  private dragId: string | null = null;
+  private drag: Drag | null = null;
+  private dropLine = el("div", "drop-line");
 
   constructor(private root: HTMLElement) {
     root.addEventListener("click", (e) => this.handleClick(e));
@@ -72,13 +94,25 @@ export class OutlineView {
   // -------------------------------------------------------------------------
 
   render() {
-    const columns = this.doc.columns;
-    const widths = columns.map((c) => (c.id === TOPIC ? "minmax(240px, 1fr)" : `${c.width ?? 160}px`));
-    this.root.style.setProperty("--grid", ["28px", ...widths, "32px"].join(" "));
-
+    this.updateColumnWidths();
     const rows = el("div", "rows");
     for (const { row, depth } of model.visibleRows(this.doc)) rows.append(this.renderRow(row, depth));
     this.root.replaceChildren(this.renderHeader(), rows);
+  }
+
+  /**
+   * Sets the grid's column sizes. The Topic column fills the spare width until
+   * it's resized by hand; every other column has a fixed width. Once nothing
+   * else is stretching, the last track (holding the + button) takes up the
+   * spare width, so the button always sits at the far right.
+   */
+  private updateColumnWidths() {
+    const widths = this.doc.columns.map((c) =>
+      c.width ? `${c.width}px` : c.id === TOPIC ? "minmax(240px, 1fr)" : `${DEFAULT_COLUMN_PX}px`,
+    );
+    const topicStretches = widths[this.doc.columns.findIndex((c) => c.id === TOPIC)]?.includes("fr");
+    const last = topicStretches ? "36px" : "minmax(36px, 1fr)";
+    this.root.style.setProperty("--grid", [`${GUTTER_PX}px`, ...widths, last].join(" "));
   }
 
   private renderHeader(): HTMLElement {
@@ -104,19 +138,24 @@ export class OutlineView {
 
       if (column.id !== TOPIC) {
         const remove = el("button", "delete-column");
-        remove.textContent = "×";
+        remove.append(icon(X, 14));
         remove.title = "Delete column";
+        remove.setAttribute("aria-label", "Delete column");
         remove.addEventListener("click", () => this.deleteColumn(column.id));
-        const resizer = el("div", "resizer");
-        resizer.addEventListener("pointerdown", (e) => this.startResize(e, column.id));
-        cell.append(remove, resizer);
+        cell.append(remove);
       }
+      const resizer = el("div", "resizer");
+      resizer.title = "Drag to resize; double-click to reset";
+      resizer.addEventListener("pointerdown", (e) => this.startResize(e, column, cell));
+      resizer.addEventListener("dblclick", () => this.resetWidth(column));
+      cell.append(resizer);
       header.append(cell);
     }
 
     const add = el("button", "add-column");
-    add.textContent = "+";
+    add.append(icon(Plus));
     add.title = "Add column";
+    add.setAttribute("aria-label", "Add column");
     add.addEventListener("click", () => this.addColumn());
     header.append(add);
     return header;
@@ -129,7 +168,7 @@ export class OutlineView {
 
     const gutter = el("div", "gutter");
     const handle = el("span", "handle");
-    handle.textContent = "⠿";
+    handle.append(icon(GripVertical, 14));
     handle.draggable = true;
     handle.title = "Drag to move";
     gutter.append(handle);
@@ -144,7 +183,7 @@ export class OutlineView {
         const toggle = el("button", "toggle");
         toggle.tabIndex = -1;
         if (row.children.length) {
-          toggle.textContent = row.collapsed ? "▸" : "▾";
+          toggle.append(icon(row.collapsed ? ChevronRight : ChevronDown, 14));
           toggle.title = row.collapsed ? "Expand" : "Collapse";
         } else {
           toggle.classList.add("leaf");
@@ -490,31 +529,44 @@ export class OutlineView {
     if (confirmed) this.change(() => (model.removeColumn(this.doc, id), true));
   }
 
-  private startResize(e: PointerEvent, id: string) {
-    const column = this.doc.columns.find((c) => c.id === id);
-    if (!column) return;
+  private startResize(e: PointerEvent, column: Column, headerCell: HTMLElement) {
+    if (e.button !== 0) return;
     e.preventDefault();
     const handle = e.target as HTMLElement;
     handle.setPointerCapture(e.pointerId);
+    document.body.classList.add("resizing");
+
     const before = JSON.stringify(this.doc);
+    const originalWidth = column.width;
     const startX = e.clientX;
-    const startWidth = column.width ?? 160;
+    // Measure the column as drawn, since the Topic column may be stretching to fill.
+    const startWidth = headerCell.getBoundingClientRect().width;
 
     const move = (ev: PointerEvent) => {
-      column.width = Math.max(60, Math.round(startWidth + ev.clientX - startX));
-      const widths = this.doc.columns.map((c) => (c.id === TOPIC ? "minmax(240px, 1fr)" : `${c.width ?? 160}px`));
-      this.root.style.setProperty("--grid", ["28px", ...widths, "32px"].join(" "));
+      column.width = Math.max(MIN_COLUMN_PX, Math.round(startWidth + ev.clientX - startX));
+      this.updateColumnWidths();
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
-      if (column.width !== startWidth) {
+      handle.removeEventListener("pointercancel", up);
+      document.body.classList.remove("resizing");
+      if (column.width !== originalWidth) {
         this.pushUndo(before);
         this.onChange();
       }
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+
+  private resetWidth(column: Column) {
+    if (column.width == null) return;
+    this.pushUndo();
+    column.width = null;
+    this.updateColumnWidths();
+    this.onChange();
   }
 
   // -------------------------------------------------------------------------
@@ -522,65 +574,91 @@ export class OutlineView {
   // -------------------------------------------------------------------------
 
   private handleDragStart(e: DragEvent) {
-    const rowEl = (e.target as HTMLElement).closest<HTMLElement>(".row");
-    if (!rowEl || !(e.target as HTMLElement).classList.contains("handle")) return;
+    const handle = e.target as HTMLElement;
+    const rowEl = handle.closest<HTMLElement>(".row");
+    if (!rowEl || !handle.classList.contains("handle")) return;
     this.stopEditing();
-    this.dragId = rowEl.dataset.id!;
-    this.select(this.dragId);
+    const rowId = rowEl.dataset.id!;
+    const depth = model.path(this.doc, rowId).length - 1;
+    this.drag = { rowId, depth, startX: e.clientX };
+    this.select(rowId);
     e.dataTransfer!.effectAllowed = "move";
     e.dataTransfer!.setData("text/plain", "");
     e.dataTransfer!.setDragImage(rowEl, 12, 12);
     rowEl.classList.add("dragging");
   }
 
-  private dropTarget(e: DragEvent): { rowEl: HTMLElement; position: DropPosition } | null {
-    const rowEl = (e.target as HTMLElement).closest<HTMLElement>(".row");
-    if (!this.dragId || !rowEl) return null;
-    const target = model.locate(this.doc, rowEl.dataset.id!)!.row;
-    const dragged = model.locate(this.doc, this.dragId)!.row;
-    if (target === dragged || this.isInside(dragged, target.id)) return null;
+  /**
+   * Works out where the dragged row would land. The pointer's height picks the
+   * gap between two rows; how far it has moved sideways since the drag began
+   * picks the level: right to nest under the row above, left to move up levels.
+   */
+  private dropPlacement(e: DragEvent): DropPlacement {
+    const drag = this.drag!;
+    const dragged = model.locate(this.doc, drag.rowId)!.row;
+    // The dragged row and its children can't be drop targets.
+    const visible = model
+      .visibleRows(this.doc)
+      .filter((v) => v.row !== dragged && !model.contains(dragged, v.row.id));
+    const rects = visible.map((v) => this.rowElement(v.row.id)!.getBoundingClientRect());
 
-    const rect = rowEl.getBoundingClientRect();
-    const y = (e.clientY - rect.top) / rect.height;
-    let position: DropPosition = y < 0.3 ? "before" : y > 0.7 ? "after" : "inside";
-    // "After" an expanded parent would land below all its children, far from
-    // the pointer; becoming its first child is what the indicator suggests.
-    if (position === "after" && target.children.length && !target.collapsed) position = "inside";
-    return { rowEl, position };
-  }
+    // The gap is just after the last row whose middle is above the pointer.
+    let gap = 0;
+    while (gap < rects.length && e.clientY > rects[gap].top + rects[gap].height / 2) gap++;
+    const above = visible[gap - 1];
+    const below = visible[gap];
 
-  private isInside(ancestor: Row, id: string): boolean {
-    return ancestor.children.some((c) => c.id === id || this.isInside(c, id));
+    // Deepest: a child of the row above. Shallowest: level with the row below
+    // (going any shallower would put the row after the one below instead).
+    const deepest = above ? above.depth + 1 : 0;
+    const shallowest = below ? below.depth : 0;
+    const wanted = drag.depth + Math.round((e.clientX - drag.startX) / INDENT_PX);
+    const depth = Math.max(shallowest, Math.min(deepest, wanted));
+
+    let parentId: string | null = null;
+    let index = 0;
+    if (above && depth === above.depth + 1) {
+      parentId = above.row.id; // first child of the row above
+    } else if (above) {
+      // Just after whichever of the above row's ancestors sits at this depth.
+      const anchor = model.locate(this.doc, model.path(this.doc, above.row.id)[depth].id)!;
+      parentId = anchor.parent?.id ?? null;
+      index = anchor.index + 1;
+    }
+
+    const rootTop = this.root.getBoundingClientRect().top - this.root.scrollTop;
+    const gapY = above ? rects[gap - 1].bottom : (rects[0]?.top ?? rootTop);
+    return { parentId, index, depth, y: gapY - rootTop };
   }
 
   private handleDragOver(e: DragEvent) {
-    const drop = this.dropTarget(e);
-    this.clearDropIndicator();
-    if (!drop) return;
+    if (!this.drag) return;
     e.preventDefault();
     e.dataTransfer!.dropEffect = "move";
-    drop.rowEl.classList.add(`drop-${drop.position}`);
+    const placement = this.dropPlacement(e);
+
+    this.dropLine.style.top = `${placement.y - 1}px`;
+    this.dropLine.style.left = `${GUTTER_PX + placement.depth * INDENT_PX + 22}px`;
+    if (!this.dropLine.isConnected) this.root.append(this.dropLine);
+
+    this.root.querySelector(".drop-parent")?.classList.remove("drop-parent");
+    if (placement.parentId) this.rowElement(placement.parentId)?.classList.add("drop-parent");
   }
 
   private handleDrop(e: DragEvent) {
-    const drop = this.dropTarget(e);
-    const id = this.dragId;
-    this.clearDrag();
-    if (!drop || !id) return;
+    if (!this.drag) return;
     e.preventDefault();
-    this.change(() => model.moveTo(this.doc, id, drop.rowEl.dataset.id!, drop.position));
-  }
-
-  private clearDropIndicator() {
-    this.root
-      .querySelectorAll(".drop-before, .drop-after, .drop-inside")
-      .forEach((r) => r.classList.remove("drop-before", "drop-after", "drop-inside"));
+    const { parentId, index } = this.dropPlacement(e);
+    const rowId = this.drag.rowId;
+    this.clearDrag();
+    this.change(() => model.moveRow(this.doc, rowId, parentId, index));
   }
 
   private clearDrag() {
-    this.clearDropIndicator();
+    this.dropLine.remove();
+    this.root.querySelector(".drop-parent")?.classList.remove("drop-parent");
     this.root.querySelector(".dragging")?.classList.remove("dragging");
-    this.dragId = null;
+    this.drag = null;
   }
 
   // -------------------------------------------------------------------------

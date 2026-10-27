@@ -34,8 +34,11 @@ cd src-tauri && cargo test   # run the Rust tests
 | Undo / redo | ⌘+Z / ⌘+Shift+Z |
 | New / open / save / save as | ⌘+N / ⌘+O / ⌘+S / ⌘+Shift+S |
 
-Rows can also be dragged by the ⠿ handle: drop on the top or bottom edge of a row to place it
-before or after, or on the middle to make it a child.
+Rows can also be dragged by the grip handle that appears to the left of a row. A blue line shows where the row will land; while
+dragging, move the pointer right to nest it under the row above, or left to move it up levels.
+The row that will become its parent is marked with a blue bar.
+
+Drag the edge of any column header to resize that column; double-click the edge to reset it.
 
 ## How the code is organised
 
@@ -48,6 +51,7 @@ src/
   view.ts     Draws the outline grid; editing, keys, drag and drop, columns, undo
   model.ts    The outline data and operations (indent, move, delete…)
   editor.ts   Sets up the TipTap text editor used inside a cell
+  icons.ts    The Lucide icons used in the toolbar and outline
   sanitize.ts Strips unsafe HTML from files before showing it
   styles.css  Appearance (follows the system's light/dark mode)
 index.html    The window's layout

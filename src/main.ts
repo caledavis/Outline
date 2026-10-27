@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
+import { insertIcons } from "./icons";
 import { assignIds, newDoc, type OutlineDoc } from "./model";
 import { OutlineView, isMac } from "./view";
 
@@ -138,16 +139,11 @@ const actions: Record<string, () => void> = {
   underline: () => view.editor?.chain().focus().toggleUnderline().run(),
   strike: () => view.editor?.chain().focus().toggleStrike().run(),
   link: editLink,
-  addRow: () => view.addRow(),
-  indent: () => view.indent(),
-  outdent: () => view.outdent(),
-  moveUp: () => view.moveRow(-1),
-  moveDown: () => view.moveRow(1),
   note: () => view.toggleNote(),
-  deleteRow: () => view.deleteRow(),
 };
 
 const toolbar = document.querySelector<HTMLElement>(".toolbar")!;
+insertIcons(toolbar);
 const markButtons = [...toolbar.querySelectorAll<HTMLButtonElement>("[data-mark]")];
 
 for (const button of toolbar.querySelectorAll<HTMLButtonElement>("button")) {
