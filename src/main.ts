@@ -7,7 +7,7 @@ import type { Editor } from "@tiptap/core";
 import { Filters } from "./filters";
 import { FileText, Globe, Plus, X, icon, insertIcons } from "./icons";
 import { toggleMenu, type MenuEntry } from "./menu";
-import { allTags, assignIds, cleanTags, newDoc, type Link, type OutlineDoc } from "./model";
+import { NORMAL_TEXT_SIZE, allTags, assignIds, cleanTags, newDoc, type Link, type OutlineDoc } from "./model";
 import { promptText } from "./prompt";
 import { Sidebar } from "./sidebar";
 import { OutlineView, isMac, type ViewState } from "./view";
@@ -404,11 +404,14 @@ function toggleSidebar() {
 // Text size
 // ---------------------------------------------------------------------------
 
-// A preference for this computer, not part of the outline file.
-const FONT_SIZE_KEY = "outlineFontSize";
-const DEFAULT_FONT_SIZE = 14;
-/** The sizes − and + step through, each about 15% bigger than the last. */
-const FONT_SIZES = [10, 12, 14, 16, 18, 21, 24, 28, 32];
+// A preference for this computer, not part of the outline file. Only a size
+// the user picked is saved, so a change to the default reaches everyone else.
+// (The key was renamed when this began, since the old one stored the default
+// too.)
+const FONT_SIZE_KEY = "outlineTextSize";
+const DEFAULT_FONT_SIZE = NORMAL_TEXT_SIZE;
+/** The sizes − and + step through, each about 10–20% bigger than the last. */
+const FONT_SIZES = [8, 10, 12, 14, 16, 18, 21, 24, 28, 32];
 let fontSize = DEFAULT_FONT_SIZE;
 
 /** Steps to the next size up (+1) or down (−1) in FONT_SIZES. */
@@ -422,7 +425,8 @@ function setFontSize(size: number) {
   document.getElementById("outline")!.style.setProperty("--outline-size", `${fontSize}px`);
   (document.querySelector('[data-action="reset-size"]') as HTMLButtonElement).disabled = fontSize === DEFAULT_FONT_SIZE;
   try {
-    localStorage.setItem(FONT_SIZE_KEY, String(fontSize));
+    if (fontSize === DEFAULT_FONT_SIZE) localStorage.removeItem(FONT_SIZE_KEY);
+    else localStorage.setItem(FONT_SIZE_KEY, String(fontSize));
   } catch {
     // Remembering this is only a convenience.
   }

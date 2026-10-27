@@ -237,7 +237,7 @@ export class Sidebar {
     sizeInput.type = "number";
     sizeInput.min = "6";
     sizeInput.max = "96";
-    sizeInput.placeholder = "14";
+    sizeInput.placeholder = String(model.NORMAL_TEXT_SIZE);
     sizeInput.value = style.size ? String(style.size) : "";
     sizeInput.addEventListener("input", () =>
       live(() => {

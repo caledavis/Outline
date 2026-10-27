@@ -45,6 +45,12 @@ export interface Link {
   notes?: string[];
 }
 
+/**
+ * The outline's normal text size, in pixels. Style sizes are measured against
+ * it, so a style keeps its proportions when the text is made larger or smaller.
+ */
+export const NORMAL_TEXT_SIZE = 14;
+
 /** A named look (text size, colour, weight…) that can be applied to rows. */
 export interface Style {
   id: string;

@@ -428,8 +428,10 @@ export class OutlineView {
   updateStyleSheet() {
     const rule = (selector: string, style: Style) => {
       const rules: string[] = [];
-      // Sizes are relative to the normal 14px, so styled rows grow and shrink with the outline's text size.
-      if (Number.isFinite(style.size)) rules.push(`--style-size: ${Math.min(96, Math.max(6, style.size!)) / 14}em`);
+      // Sizes are relative to the normal text size, so styled rows grow and shrink with the outline's text size.
+      if (Number.isFinite(style.size)) {
+        rules.push(`--style-size: ${Math.min(96, Math.max(6, style.size!)) / model.NORMAL_TEXT_SIZE}em`);
+      }
       if (model.isColor(style.color)) rules.push(`--style-color: ${style.color}`);
       if (style.bold) rules.push("--style-weight: 650");
       if (style.italic) rules.push("--style-slant: italic");
