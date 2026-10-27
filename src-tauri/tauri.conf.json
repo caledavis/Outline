@@ -33,6 +33,9 @@
       "../LICENSE": "LICENSE",
       "../THIRD-PARTY-LICENSES.txt": "THIRD-PARTY-LICENSES.txt"
     },
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

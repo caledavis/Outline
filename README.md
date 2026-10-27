@@ -1,7 +1,22 @@
-# Outline
+<p align="center">
+  <img src="outlineicon.png" alt="Outline" width="160">
+</p>
 
-A lightweight outliner for planning and organising research, for Windows, macOS and Linux.
-Built with [Tauri](https://tauri.app) (Rust) and TypeScript, with text editing by [TipTap](https://tiptap.dev).
+# Outline: A lightweight outliner for planning research
+
+**Download the latest version:**
+
+- [macOS — Apple Silicon](https://github.com/caledavis/Outline/releases/latest/download/Outline-mac-arm64.dmg)
+- [macOS — Intel](https://github.com/caledavis/Outline/releases/latest/download/Outline-mac-x64.dmg)
+- [Windows — Installer](https://github.com/caledavis/Outline/releases/latest/download/Outline-win-x64-setup.exe) (or as an [.msi](https://github.com/caledavis/Outline/releases/latest/download/Outline-win-x64.msi))
+- [Windows — Portable](https://github.com/caledavis/Outline/releases/latest/download/Outline-win-portable-x64.exe) (no installation or admin rights needed — ideal for managed or work computers)
+- [Linux — AppImage](https://github.com/caledavis/Outline/releases/latest/download/Outline-linux-x86_64.AppImage)
+- [Linux — .deb](https://github.com/caledavis/Outline/releases/latest/download/Outline-linux-amd64.deb) (Debian/Ubuntu)
+- [Linux — .rpm](https://github.com/caledavis/Outline/releases/latest/download/Outline-linux-x86_64.rpm) (Fedora/openSUSE/RHEL)
+
+Outline is a free and open-source outliner for planning and organising research, for Windows,
+macOS and Linux, released under the European Union Public Licence (EUPL). Built with
+[Tauri](https://tauri.app) (Rust) and TypeScript, with text editing by [TipTap](https://tiptap.dev).
 
 Outlines are saved as **OPML 2.0**, an open, plain-text outline format that OmniOutliner
 and many other apps can also open.
@@ -21,12 +36,43 @@ Outline bundles open-source libraries under their own licences, listed with thei
 [THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt). Regenerate it with `npm run licenses` after
 adding or updating dependencies.
 
+## Troubleshooting
+
+Outline isn't yet signed with Apple or Microsoft developer certificates, so the first time you
+open it your computer may warn you:
+
+- **macOS:** if it says Outline "can't be opened" or is from an unidentified developer, open
+  **System Settings → Privacy & Security**, scroll down and click **Open Anyway** (once).
+- **Windows:** if SmartScreen says it "protected your PC", click **More info → Run anyway**.
+- **Windows (portable):** needs Microsoft Edge WebView2, which Windows 10 and 11 normally include.
+- **Linux (AppImage):** make it executable first (`chmod +x Outline-linux-x86_64.AppImage`). If
+  it still won't start, install `libfuse2` (e.g. `sudo apt install libfuse2`).
+
+## Building it
+
+```sh
+npm install           # once, to download the JavaScript libraries
+npm run tauri build   # builds the app and installers for this computer
+```
+
+The installers end up in `src-tauri/target/release/bundle/`. Each operating system can only
+build its own installers, so the releases are built by GitHub Actions
+(`.github/workflows/release.yml`) on GitHub's macOS, Windows and Linux machines:
+
+1. Update the version number in `package.json`, `src-tauri/tauri.conf.json` and
+   `src-tauri/Cargo.toml`, and commit.
+2. Tag the commit and push the tag, e.g. `git tag v0.2.0 && git push origin v0.2.0`.
+3. GitHub builds every installer and publishes them as a release; the download links above then
+   point to it.
+
+To try the builds without publishing, run the workflow by hand (Actions → Release → Run
+workflow); the installers are attached to the run.
+
 ## Running it
 
 ```sh
 npm install          # once, to download the JavaScript libraries
 npm run tauri dev    # run the app in development mode
-npm run tauri build  # build an installer for this computer's OS
 cd src-tauri && cargo test   # run the Rust tests
 ```
 

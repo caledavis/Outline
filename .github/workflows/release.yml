@@ -1,0 +1,115 @@
+# Builds Outline for macOS, Windows and Linux on GitHub's machines.
+#
+# - Pushing a version tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`)
+#   builds every installer and publishes them as a GitHub Release. The files
+#   always have the same names, so the README's
+#   …/releases/latest/download/<file> links point at the newest version.
+# - Running it by hand (Actions → Release → Run workflow) only builds, and
+#   keeps the installers as downloadable "artifacts" on the run, so a build
+#   can be tried without publishing anything.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A draft until every installer has been uploaded (see `publish` below).
+      - run: gh release create "$GITHUB_REF_NAME" --draft --title "Outline $GITHUB_REF_NAME" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  build:
+    needs: create-release
+    # Also run when started by hand, when create-release is skipped.
+    if: ${{ !failure() && !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: mac-arm64, os: macos-latest, target: aarch64-apple-darwin }
+          - { name: mac-x64, os: macos-latest, target: x86_64-apple-darwin }
+          - { name: win-x64, os: windows-latest, target: x86_64-pc-windows-msvc }
+          # An older Ubuntu, so the Linux builds run on older systems too.
+          - { name: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - run: npm run tauri build -- --target ${{ matrix.target }}
+
+      - name: Collect installers under fixed names
+        shell: bash
+        run: |
+          release=src-tauri/target/${{ matrix.target }}/release
+          bundle=$release/bundle
+          mkdir installers
+          case "${{ matrix.name }}" in
+            mac-*)
+              cp "$bundle"/dmg/*.dmg "installers/Outline-${{ matrix.name }}.dmg" ;;
+            win-x64)
+              cp "$bundle"/nsis/*-setup.exe installers/Outline-win-x64-setup.exe
+              cp "$bundle"/msi/*.msi installers/Outline-win-x64.msi
+              # The app on its own, for computers where installing isn't allowed.
+              cp "$release"/outline.exe installers/Outline-win-portable-x64.exe ;;
+            linux-x64)
+              cp "$bundle"/appimage/*.AppImage installers/Outline-linux-x86_64.AppImage
+              cp "$bundle"/deb/*.deb installers/Outline-linux-amd64.deb
+              cp "$bundle"/rpm/*.rpm installers/Outline-linux-x86_64.rpm ;;
+          esac
+          ls -l installers
+
+      - name: Upload to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: gh release upload "$GITHUB_REF_NAME" installers/* --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Keep as a test build
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Outline-${{ matrix.name }}
+          path: installers/*
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      # Only reached when every build succeeded; otherwise the release stays a draft.
+      - run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ github.token }}
