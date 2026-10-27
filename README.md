@@ -6,6 +6,17 @@ Built with [Tauri](https://tauri.app) (Rust) and TypeScript, with text editing b
 Outlines are saved as **OPML 2.0**, an open, plain-text outline format that OmniOutliner
 and many other apps can also open.
 
+## Licence
+
+Outline is free and released under the European Union Public Licence (EUPL v1.2; see
+[LICENSE](LICENSE)). This means that everyone is free to use Outline, reproduce it, change it,
+and make their changes available to others (among other things). Importantly, if Outline or a
+derivative of it is distributed, it must also be done under the EUPL licence and the source code
+must be made freely available.
+
+This ensures that Outline remains free for everyone, and disincentivises companies from
+profiting off it.
+
 ## Running it
 
 ```sh
