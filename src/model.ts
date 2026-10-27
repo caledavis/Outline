@@ -57,7 +57,12 @@ export interface Style {
   italic?: boolean;
   /** Highlight colour behind the text as "#rrggbb", or null for none. */
   background?: string | null;
+  /** The style's font, or null for the normal serif. */
+  font?: "serif" | "sans" | "mono" | null;
 }
+
+/** The id of the Default style, which sets how rows without a style look. */
+export const DEFAULT_STYLE = "default";
 
 /** Styles get the shortcuts Mod+1 to Mod+9, so that's the most there can be. */
 export const MAX_STYLES = 9;
@@ -81,6 +86,8 @@ export interface OutlineDoc {
   title: string;
   columns: Column[];
   styles: Style[];
+  /** How rows without a style look (it has no effect on styled rows). */
+  defaultStyle?: Style;
   /** Tags created in the Tags pane, including ones no row uses yet. */
   tags?: string[];
   rows: Row[];

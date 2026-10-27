@@ -164,18 +164,11 @@ export class Sidebar {
     this.stylesStale = false;
     const styles = this.view.doc.styles;
     const items = styles.map((style, i) => this.renderStyle(style, i));
+    // Default comes last: applying it removes a row's style (⌘0), and its
+    // settings set how every row without a style looks.
+    items.push(this.renderStyle(this.view.doc.defaultStyle!, -1));
 
-    // A "no style" entry, for removing styles with the mouse.
-    const none = el("li", "style-item");
-    const clear = el("button", "style-apply");
-    clear.dataset.styleId = "";
-    clear.title = "Remove the style from the selected rows";
-    clear.append(kbd(`${MOD}0`), text("style-name plain", "No style"));
-    clear.addEventListener("mousedown", (e) => e.preventDefault());
-    clear.addEventListener("click", () => this.view.applyStyle(null));
-    none.append(clear);
-
-    this.styles.replaceChildren(...items, none);
+    this.styles.replaceChildren(...items);
     this.addStyleButton.disabled = styles.length >= model.MAX_STYLES;
     this.addStyleButton.title = this.addStyleButton.disabled ? `Up to ${model.MAX_STYLES} styles` : "";
     this.updateSelection();
@@ -186,15 +179,16 @@ export class Sidebar {
     const open = style.id === this.openStyleId;
     item.classList.toggle("open", open);
 
+    const isDefault = style.id === model.DEFAULT_STYLE;
     const apply = el("button", "style-apply");
-    apply.dataset.styleId = style.id;
-    apply.title = "Apply to the selected rows";
+    apply.dataset.styleId = isDefault ? "" : style.id;
+    apply.title = isDefault ? "Set the selected rows back to Default" : "Apply to the selected rows";
     const name = text("style-name", style.name || "Untitled");
     name.dataset.style = style.id;
     apply.append(kbd(`${MOD}${index + 1}`), name);
     // Keep the focus (and any text being edited) in the outline.
     apply.addEventListener("mousedown", (e) => e.preventDefault());
-    apply.addEventListener("click", () => this.view.applyStyle(style.id));
+    apply.addEventListener("click", () => this.view.applyStyle(isDefault ? null : style.id));
 
     const edit = iconButton(Pencil, open ? "Close settings" : "Edit style", () => {
       this.openStyleId = open ? null : style.id;
@@ -211,6 +205,9 @@ export class Sidebar {
   /** The fields for changing a style. Changes show straight away in the outline. */
   private renderSettings(style: Style, index: number, preview: HTMLElement): HTMLElement {
     const settings = el("div", "style-settings");
+    // Default has no name, order or delete. Each style stands alone: whatever it
+    // leaves unset is the app's normal look, whatever Default says.
+    const isDefault = style.id === model.DEFAULT_STYLE;
 
     // Typing previews the change; each finished change becomes one undo step.
     const live = (update: () => void) => {
@@ -303,6 +300,22 @@ export class Sidebar {
     });
     remove.classList.add("danger");
 
+    // The normal font is serif, so choosing Serif clears the setting.
+    const fonts: [string, Style["font"]][] = [["Serif", null], ["Sans", "sans"], ["Mono", "mono"]];
+    const fontField = el("div", "segmented");
+    for (const [label, font] of fonts) {
+      const option = el("button");
+      option.textContent = label;
+      option.style.fontFamily = `var(--${font ?? "serif"})`;
+      option.classList.toggle("active", (style.font === "serif" ? null : (style.font ?? null)) === font);
+      option.addEventListener("click", () => {
+        live(() => (style.font = font));
+        done();
+        for (const other of fontField.children) other.classList.toggle("active", other === option);
+      });
+      fontField.append(option);
+    }
+
     const textField = el("div", "toggle-field");
     textField.append(toggle("bold", Bold, "Bold"), toggle("italic", Italic, "Italic"));
     const sizeField = el("div", "size-field");
@@ -310,14 +323,15 @@ export class Sidebar {
     const actions = el("div", "style-actions");
     actions.append(up, down, el("span", "spacer"), remove);
 
+    if (!isDefault) settings.append(field("Name", nameInput));
     settings.append(
-      field("Name", nameInput),
       field("Size", sizeField),
+      field("Font", fontField),
       field("Text", textField),
       field("Colour", colorPicker("color", "#1f5fbf", "Normal colour")),
       field("Highlight", colorPicker("background", "#fff3bf", "No highlight")),
-      actions,
     );
+    if (!isDefault) settings.append(actions);
     return settings;
   }
 

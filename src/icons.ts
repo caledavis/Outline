@@ -3,7 +3,7 @@
 
 import {
   Bold, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText,
-  FolderOpen, Globe, GripVertical, Hash, Italic, Link, List, ListFilter, PanelLeft, Paperclip,
+  FolderOpen, Globe, GripVertical, Hash, Italic, Link, List, ListFilter, Minus, PanelLeft, Paperclip,
   Pencil, Plus, RotateCcw, Save, Search, SquareCheck, StickyNote, Strikethrough, Tag, Trash2, Type,
   Underline, X, createElement,
 } from "lucide";
@@ -27,6 +27,9 @@ const BY_NAME: Record<string, IconNode> = {
   cite: BookOpen,
   search: Search,
   filter: ListFilter,
+  smaller: Minus,
+  larger: Plus,
+  "reset-size": RotateCcw,
 };
 
 export {

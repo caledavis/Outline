@@ -34,6 +34,9 @@ pub struct Document {
     pub columns: Vec<Column>,
     #[serde(default)]
     pub styles: Vec<Style>,
+    /// How rows without a style look (it has no effect on styled rows).
+    #[serde(rename = "defaultStyle", default)]
+    pub default_style: Style,
     /// Tags created in the Tags pane, including ones no row uses yet.
     #[serde(default)]
     pub tags: Vec<String>,
@@ -102,7 +105,12 @@ pub struct Style {
     /// Highlight colour behind the text as `#rrggbb`, if any.
     #[serde(default)]
     pub background: Option<String>,
+    /// "serif", "sans" or "mono"; `None` means the normal serif.
+    #[serde(default)]
+    pub font: Option<String>,
 }
+
+const STYLE_FONTS: [&str; 3] = ["serif", "sans", "mono"];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Row {
@@ -133,7 +141,14 @@ pub fn parse(xml: &str) -> Result<Document, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
-    let mut doc = Document { title: String::new(), columns: Vec::new(), styles: Vec::new(), tags: Vec::new(), rows: Vec::new() };
+    let mut doc = Document {
+        title: String::new(),
+        columns: Vec::new(),
+        styles: Vec::new(),
+        default_style: Style::default(),
+        tags: Vec::new(),
+        rows: Vec::new(),
+    };
     // Rows whose closing `</outline>` we haven't reached yet, outermost first.
     let mut open: Vec<Row> = Vec::new();
     let mut is_opml = false;
@@ -159,6 +174,7 @@ pub fn parse(xml: &str) -> Result<Document, String> {
                 }
                 "ol:column" => doc.columns.push(column_from(&e)?),
                 "ol:style" => doc.styles.push(style_from(&e)?),
+                "ol:default-style" => doc.default_style = read_style(&e)?,
                 "ol:tag" => {
                     let name = attributes(&e)?.into_iter().find(|(key, _)| key == "name").map(|(_, v)| v);
                     if let Some(name) = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
@@ -255,6 +271,15 @@ fn column_from(e: &BytesStart) -> Result<Column, String> {
 }
 
 fn style_from(e: &BytesStart) -> Result<Style, String> {
+    let style = read_style(e)?;
+    if !is_valid_id(&style.id) {
+        return Err(format!("Invalid style id {:?} in file", style.id));
+    }
+    Ok(style)
+}
+
+/// A style's attributes (without checking its id, which the default style lacks).
+fn read_style(e: &BytesStart) -> Result<Style, String> {
     let mut style = Style::default();
     for (key, value) in attributes(e)? {
         match key.as_str() {
@@ -265,11 +290,9 @@ fn style_from(e: &BytesStart) -> Result<Style, String> {
             "bold" => style.bold = value == "true",
             "italic" => style.italic = value == "true",
             "background" => style.background = Some(value).filter(|c| is_valid_color(c)),
+            "font" => style.font = Some(value).filter(|f| STYLE_FONTS.contains(&f.as_str())),
             _ => {}
         }
-    }
-    if !is_valid_id(&style.id) {
-        return Err(format!("Invalid style id {:?} in file", style.id));
     }
     Ok(style)
 }
@@ -316,24 +339,12 @@ pub fn write(doc: &Document) -> Result<String, String> {
         }
         out += "/>\n";
     }
+    let default_style = style_attributes(&doc.default_style);
+    if !default_style.is_empty() {
+        out += &format!("    <ol:default-style{default_style}/>\n");
+    }
     for style in &doc.styles {
-        out += &format!("    <ol:style id=\"{}\" name=\"{}\"", style.id, attr(&style.name));
-        if let Some(size) = style.size {
-            out += &format!(" size=\"{}\"", size.clamp(MIN_SIZE, MAX_SIZE));
-        }
-        if let Some(color) = style.color.as_ref().filter(|c| is_valid_color(c)) {
-            out += &format!(" color=\"{color}\"");
-        }
-        if style.bold {
-            out += " bold=\"true\"";
-        }
-        if style.italic {
-            out += " italic=\"true\"";
-        }
-        if let Some(background) = style.background.as_ref().filter(|c| is_valid_color(c)) {
-            out += &format!(" background=\"{background}\"");
-        }
-        out += "/>\n";
+        out += &format!("    <ol:style id=\"{}\" name=\"{}\"{}/>\n", style.id, attr(&style.name), style_attributes(style));
     }
     for tag in &doc.tags {
         out += &format!("    <ol:tag name=\"{}\"/>\n", attr(tag));
@@ -344,6 +355,30 @@ pub fn write(doc: &Document) -> Result<String, String> {
     }
     out += "  </body>\n</opml>\n";
     Ok(out)
+}
+
+/// The attributes describing how a style looks (everything but its id and name).
+fn style_attributes(style: &Style) -> String {
+    let mut out = String::new();
+    if let Some(size) = style.size {
+        out += &format!(" size=\"{}\"", size.clamp(MIN_SIZE, MAX_SIZE));
+    }
+    if let Some(color) = style.color.as_ref().filter(|c| is_valid_color(c)) {
+        out += &format!(" color=\"{color}\"");
+    }
+    if style.bold {
+        out += " bold=\"true\"";
+    }
+    if style.italic {
+        out += " italic=\"true\"";
+    }
+    if let Some(background) = style.background.as_ref().filter(|c| is_valid_color(c)) {
+        out += &format!(" background=\"{background}\"");
+    }
+    if let Some(font) = style.font.as_ref().filter(|f| STYLE_FONTS.contains(&f.as_str())) {
+        out += &format!(" font=\"{font}\"");
+    }
+    out
 }
 
 fn write_row(out: &mut String, row: &Row, columns: &[Column], depth: usize) {
@@ -447,7 +482,7 @@ mod tests {
                 },
             ],
             styles: vec![
-                Style { id: "s1".into(), name: "Heading".into(), size: Some(18), bold: true, ..Style::default() },
+                Style { id: "s1".into(), name: "Heading".into(), size: Some(18), bold: true, font: Some("sans".into()), ..Style::default() },
                 Style {
                     id: "s2".into(),
                     name: "Red & highlighted".into(),
@@ -457,6 +492,7 @@ mod tests {
                     ..Style::default()
                 },
             ],
+            default_style: Style { size: Some(15), font: Some("sans".into()), ..Style::default() },
             tags: vec!["to-read".into(), "unused & spare".into()],
             rows: vec![parent, empty],
         }
@@ -519,12 +555,13 @@ mod tests {
     #[test]
     fn ignores_unsafe_style_values() {
         let xml = r##"<opml version="2.0"><head>
-              <ol:style id="s1" name="Odd" size="500" color="red;background:url(x)" background="#12345z"/>
+              <ol:style id="s1" name="Odd" size="500" color="red;background:url(x)" background="#12345z" font="comic"/>
             </head><body><outline text="x" ol:style="s1 evil"/></body></opml>"##;
         let doc = parse(xml).unwrap();
         assert_eq!(doc.styles[0].size, Some(MAX_SIZE));
         assert_eq!(doc.styles[0].color, None);
         assert_eq!(doc.styles[0].background, None);
+        assert_eq!(doc.styles[0].font, None);
         assert_eq!(doc.rows[0].style, None);
     }
 

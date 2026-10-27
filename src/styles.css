@@ -9,7 +9,11 @@
   --icon: #5c5c62;
   --toolbar: #fafafb;
   color-scheme: light dark;
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  /* The interface font, and the serif used for the outline's own text. */
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, sans-serif;
+  --serif: ui-serif, "New York", Georgia, Cambria, "Times New Roman", serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font: 14px/1.45 var(--sans);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -401,7 +405,8 @@ body.sidebar-hidden #sidebar { display: none; }
   white-space: nowrap;
   text-overflow: ellipsis;
   /* Previews the style, without letting big sizes swamp the sidebar. */
-  font-size: min(var(--style-size, 14px), 22px);
+  font-size: min(var(--style-size, 1em), 22px);
+  font-family: var(--style-font, var(--serif));
   font-weight: var(--style-weight, normal);
   font-style: var(--style-slant, normal);
   color: var(--style-color, var(--fg));
@@ -410,7 +415,6 @@ body.sidebar-hidden #sidebar { display: none; }
   border-radius: 4px;
 }
 
-.style-name.plain { color: var(--muted); }
 
 .icon-button {
   display: grid;
@@ -521,6 +525,8 @@ body.sidebar-hidden #sidebar { display: none; }
 #outline {
   position: relative;
   flex: 1;
+  /* The outline's text size, set with the toolbar's − / + (see main.ts). */
+  font-size: var(--outline-size, 14px);
   min-width: 0;
   overflow: auto;
   padding-bottom: 40vh;
@@ -693,7 +699,7 @@ body.resizing {
   display: flex;
   align-items: center;
   /* As tall as the first line of the row's text, so the icon is centred on it. */
-  height: calc(var(--style-size, 14px) * 1.45);
+  height: calc(var(--style-size, 1em) * 1.45);
   border-radius: 4px;
   color: var(--muted);
   cursor: grab;
@@ -729,7 +735,7 @@ body.resizing {
 }
 
 /* Match the first line of the (possibly styled) text beside it. */
-.cell.topic .toggle { height: calc(var(--style-size, 14px) * 1.45); }
+.cell.topic .toggle { height: calc(var(--style-size, 1em) * 1.45); }
 
 .toggle:not(.leaf):hover { color: var(--fg); background: var(--line); }
 
@@ -754,6 +760,10 @@ body.resizing {
 
 .content p { margin: 0; }
 
+/* What the user writes (cells and notes) is set in serif; controls stay in the interface font. */
+#outline .content { font-family: var(--style-font, var(--serif)); }
+#outline .badge-list { font-family: var(--sans); }
+
 /* A row's style (see updateStyleSheet in view.ts) sets these variables. */
 .cell .content {
   font-size: var(--style-size, inherit);
@@ -774,7 +784,7 @@ body.resizing {
   padding-right: 8px;
   padding-bottom: 6px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 0.93em;
 }
 
 .note .content p + p { margin-top: 0.4em; }
@@ -830,6 +840,30 @@ dialog menu button.primary {
 }
 
 .toggle-field .icon-button { border: 1px solid var(--line); }
+
+/* Serif / Sans / Mono choice in a style's settings. */
+.segmented {
+  display: flex;
+  padding: 2px;
+  background: var(--hover);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.segmented button {
+  flex: 1;
+  padding: 2px 6px;
+  font-size: 12px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+}
+
+.segmented button.active {
+  color: var(--accent);
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+}
 .toggle-field .icon-button.active { color: var(--accent); background: var(--selected); border-color: transparent; }
 
 /* Typed cells -------------------------------------------------------------- */

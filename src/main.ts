@@ -207,6 +207,34 @@ function toggleSidebar() {
 }
 
 // ---------------------------------------------------------------------------
+// Text size
+// ---------------------------------------------------------------------------
+
+// A preference for this computer, not part of the outline file.
+const FONT_SIZE_KEY = "outlineFontSize";
+const DEFAULT_FONT_SIZE = 14;
+/** The sizes − and + step through, each about 15% bigger than the last. */
+const FONT_SIZES = [10, 12, 14, 16, 18, 21, 24, 28, 32];
+let fontSize = DEFAULT_FONT_SIZE;
+
+/** Steps to the next size up (+1) or down (−1) in FONT_SIZES. */
+function stepFontSize(direction: 1 | -1) {
+  const next = direction > 0 ? FONT_SIZES.find((s) => s > fontSize) : [...FONT_SIZES].reverse().find((s) => s < fontSize);
+  if (next) setFontSize(next);
+}
+
+function setFontSize(size: number) {
+  fontSize = Math.min(FONT_SIZES[FONT_SIZES.length - 1], Math.max(FONT_SIZES[0], size));
+  document.getElementById("outline")!.style.setProperty("--outline-size", `${fontSize}px`);
+  (document.querySelector('[data-action="reset-size"]') as HTMLButtonElement).disabled = fontSize === DEFAULT_FONT_SIZE;
+  try {
+    localStorage.setItem(FONT_SIZE_KEY, String(fontSize));
+  } catch {
+    // Remembering this is only a convenience.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Toolbar
 // ---------------------------------------------------------------------------
 
@@ -223,6 +251,9 @@ const actions: Record<string, (button: HTMLButtonElement) => void> = {
   note: () => view.toggleNote(),
   attach: (button) => toggleMenu(button, attachMenu),
   cite,
+  smaller: () => stepFontSize(-1),
+  larger: () => stepFontSize(1),
+  "reset-size": () => setFontSize(DEFAULT_FONT_SIZE),
   // The filter button handles its own clicks (see filters.ts).
 };
 
@@ -253,6 +284,14 @@ try {
 }
 setSidebarHidden(sidebarHidden);
 
+let savedFontSize = DEFAULT_FONT_SIZE;
+try {
+  savedFontSize = Number(localStorage.getItem(FONT_SIZE_KEY)) || DEFAULT_FONT_SIZE;
+} catch {
+  // Use the default.
+}
+setFontSize(savedFontSize);
+
 // ---------------------------------------------------------------------------
 // Keyboard
 // ---------------------------------------------------------------------------
@@ -269,6 +308,13 @@ window.addEventListener(
       if (key === "n") newFile();
       else if (key === "o") openFile();
       else saveFile(e.shiftKey);
+      return;
+    }
+    if (mod && ["=", "+", "-", "_"].includes(e.key)) {
+      // ⌘+ (often typed as ⌘=) and ⌘− change the outline's text size.
+      e.preventDefault();
+      e.stopPropagation();
+      stepFontSize(e.key === "=" || e.key === "+" ? 1 : -1);
       return;
     }
     if (mod && e.key === "\\") {

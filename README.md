@@ -32,10 +32,11 @@ cd src-tauri && cargo test   # run the Rust tests
 | Bold / italic / underline | ⌘+B / ⌘+I / ⌘+U |
 | Link | ⌘+K (⌘+click a link to open it) |
 | Apply style 1–9 to selected rows | ⌘+1 … ⌘+9 (press again to remove) |
-| Remove style | ⌘+0 |
+| Back to Default style | ⌘+0 |
 | Select several rows | Shift+click, ⌘+click, or Shift+↑/↓ when not editing (indent, move, delete and styles then act on all of them) |
 | Show / hide sidebar | ⌘+\\ |
 | Search | ⌘+F (Esc clears) |
+| Larger / smaller text | ⌘+plus / ⌘+minus (or − and + in the toolbar, with ↺ to reset) |
 | Tags for the selected rows | ⌘+Shift+T |
 | Undo / redo | ⌘+Z / ⌘+Shift+Z |
 | New / open / save / save as | ⌘+N / ⌘+O / ⌘+S / ⌘+Shift+S |
@@ -84,7 +85,9 @@ toolbar.
 - **Overview** lists the top-level rows; click one to jump to it.
 - **Styles** set the text size, colour, bold/italic and a highlight colour for whole rows. Click a style to apply it to the
   selected rows, or use its shortcut. The pencil button opens a style's settings (name, size,
-  bold, italic, colour, highlight, order and delete). The order decides the shortcut number, up to nine styles.
+  font (serif, sans or mono), bold, italic, colour, highlight, order and delete). The order decides the shortcut number, up to nine styles.
+  **Default** (⌘+0) sets how rows without a style look. Each style stands on its own: Default
+  doesn't affect styled rows.
 - **Tags** lists every tag and how many rows have it; see above.
 
 ## Spelling

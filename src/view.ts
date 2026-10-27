@@ -11,7 +11,7 @@ import {
 } from "./icons";
 import { toggleMenu, type MenuEntry } from "./menu";
 import * as model from "./model";
-import { TOPIC, type Column, type ColumnType, type Link, type OutlineDoc, type Row } from "./model";
+import { TOPIC, type Column, type ColumnType, type Link, type OutlineDoc, type Row, type Style } from "./model";
 import { promptText } from "./prompt";
 import { plainText, sanitize } from "./sanitize";
 import { fetchZoteroNotes } from "./zotero";
@@ -141,6 +141,7 @@ export class OutlineView {
     this.doc = doc;
     doc.styles ??= [];
     doc.tags ??= [];
+    doc.defaultStyle = { ...doc.defaultStyle, id: model.DEFAULT_STYLE, name: "Default" };
     model.addMissingRowDataColumns(doc);
     this.filter = NO_FILTER;
     this.pinned.clear();
@@ -372,18 +373,26 @@ export class OutlineView {
    * rewriting this sheet, not redrawing the outline.
    */
   updateStyleSheet() {
-    this.styleSheet.textContent = this.doc.styles
+    const rule = (selector: string, style: Style) => {
+      const rules: string[] = [];
+      // Sizes are relative to the normal 14px, so styled rows grow and shrink with the outline's text size.
+      if (Number.isFinite(style.size)) rules.push(`--style-size: ${Math.min(96, Math.max(6, style.size!)) / 14}em`);
+      if (model.isColor(style.color)) rules.push(`--style-color: ${style.color}`);
+      if (style.bold) rules.push("--style-weight: 650");
+      if (style.italic) rules.push("--style-slant: italic");
+      if (model.isColor(style.background)) rules.push(`--style-background: ${style.background}`, "--style-pad: 4px");
+      if (style.font === "serif" || style.font === "sans" || style.font === "mono") rules.push(`--style-font: var(--${style.font})`);
+      return `${selector} { ${rules.join("; ")} }`;
+    };
+    // Default applies only to rows without a style; styled rows don't inherit any of it.
+    const defaultRule = rule(
+      `#outline .row:not([data-style]), [data-style="${model.DEFAULT_STYLE}"]`,
+      this.doc.defaultStyle ?? { id: "", name: "" },
+    );
+    const styleRules = this.doc.styles
       .filter((style) => /^[a-z][a-z0-9_-]*$/i.test(style.id))
-      .map((style) => {
-        const rules: string[] = [];
-        if (Number.isFinite(style.size)) rules.push(`--style-size: ${Math.min(96, Math.max(6, style.size!))}px`);
-        if (model.isColor(style.color)) rules.push(`--style-color: ${style.color}`);
-        if (style.bold) rules.push("--style-weight: 650");
-        if (style.italic) rules.push("--style-slant: italic");
-        if (model.isColor(style.background)) rules.push(`--style-background: ${style.background}`, "--style-pad: 4px");
-        return `[data-style="${style.id}"] { ${rules.join("; ")} }`;
-      })
-      .join("\n");
+      .map((style) => rule(`[data-style="${style.id}"]`, style));
+    this.styleSheet.textContent = [defaultRule, ...styleRules].join("\n");
   }
 
   /** The plain text of a row's Topic, including any edits still being typed. */
