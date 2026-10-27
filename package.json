@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "licenses": "node scripts/build-third-party-licenses.mjs > THIRD-PARTY-LICENSES.txt"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

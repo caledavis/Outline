@@ -17,6 +17,10 @@ must be made freely available.
 This ensures that Outline remains free for everyone, and disincentivises companies from
 profiting off it.
 
+Outline bundles open-source libraries under their own licences, listed with their full text in
+[THIRD-PARTY-LICENSES.txt](THIRD-PARTY-LICENSES.txt). Regenerate it with `npm run licenses` after
+adding or updating dependencies.
+
 ## Running it
 
 ```sh
