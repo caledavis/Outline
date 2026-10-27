@@ -51,6 +51,18 @@ Drag the edge of any column header to resize that column; double-click the edge 
   selected rows, or use its shortcut. The pencil button opens a style's settings (name, size,
   bold, italic, colour, highlight, order and delete). The order decides the shortcut number, up to nine styles.
 
+## Spelling
+
+Outline uses the operating system's own spell checker. Misspelt words are underlined;
+right-click one for suggestions.
+
+- **macOS:** spell checking is always on. Autocorrect follows *Correct spelling automatically* in
+  System Settings → Keyboard → Text Input → Edit.
+- **Windows:** uses the Windows spell checker and its languages. Windows doesn't offer
+  autocorrect in apps like this one.
+- **Linux:** uses the system dictionaries (Hunspell via Enchant) for your locale's language.
+  WebKitGTK doesn't offer autocorrect.
+
 ## How the code is organised
 
 ```

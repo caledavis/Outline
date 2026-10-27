@@ -33,3 +33,11 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Platform libraries used to switch on the system spell checker (see lib.rs).
+# Their versions match the ones Tauri itself uses.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSUserDefaults", "NSString", "NSObject"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"

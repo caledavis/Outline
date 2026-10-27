@@ -52,6 +52,8 @@ export function createEditor(element: HTMLElement, html: string, hooks: EditorHo
       }),
       outlineKeys,
     ],
+    // Ask the webview for the system's spell checker and autocorrect.
+    editorProps: { attributes: { spellcheck: "true", autocorrect: "on" } },
     onUpdate: hooks.onChange,
     onTransaction: ({ editor }) => hooks.onSelectionChange(editor),
   });

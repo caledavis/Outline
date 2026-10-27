@@ -2364,6 +2364,7 @@ dependencies = [
 name = "outline"
 version = "0.1.0"
 dependencies = [
+ "objc2-foundation",
  "quick-xml",
  "serde",
  "serde_json",
@@ -2371,6 +2372,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "webkit2gtk",
 ]
 
 [[package]]
