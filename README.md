@@ -101,6 +101,8 @@ cd src-tauri && cargo test   # run the Rust tests
 | Tags for the selected rows | ⌘+Shift+T |
 | Undo / redo | ⌘+Z / ⌘+Shift+Z |
 | New / open / save / save as | ⌘+N / ⌘+O / ⌘+S / ⌘+Shift+S |
+| New tab / close tab | ⌘+N or ⌘+T / ⌘+W |
+| Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab, or ⌘+Shift+] / ⌘+Shift+[ |
 
 Rows can also be dragged by the grip handle that appears to the left of a row. A blue line shows where the row will land; while
 dragging, move the pointer right to nest it under the row above, or left to move it up levels.
@@ -171,7 +173,7 @@ src-tauri/src/
   opml.rs     Reads and writes OPML files (with tests)
   zotero.rs   Searches the Zotero library through Zotero's local API
 src/
-  main.ts     Toolbar, file open/save, window title, global shortcuts
+  main.ts     Toolbar, tabs, file open/save, window title, global shortcuts
   sidebar.ts  The sidebar: overview of top-level rows, styles and tags
   filters.ts  The search box, filter menu and filter bar
   zotero.ts   The dialog for linking rows to Zotero items

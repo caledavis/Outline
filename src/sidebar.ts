@@ -76,7 +76,6 @@ export class Sidebar {
     const items = this.view.doc.rows.map((row) => {
       const button = el("button", "overview-item");
       button.dataset.id = row.id;
-      if (row.style) button.dataset.style = row.style;
       const text = this.view.topicText(row).trim();
       button.textContent = text || "Untitled";
       button.classList.toggle("untitled", !text);

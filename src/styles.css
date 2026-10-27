@@ -132,6 +132,123 @@ button {
   outline: none;
 }
 
+/* Tabs -------------------------------------------------------------------- */
+
+/*
+ * As in VS Code (and Magnolia): inactive tabs sit on a strip with a rule
+ * along the bottom; the active tab is the page colour, with an accent stripe
+ * on top and no rule under it, so it joins the outline below. Each item draws
+ * its own piece of the rule, because the bar scrolls sideways and would clip
+ * an active tab trying to cover a rule on the bar itself.
+ */
+.tabs {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  height: 34px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: var(--toolbar);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tabs::-webkit-scrollbar { display: none; }
+
+/* Carries the rule on past the last tab to the window's edge. */
+.tabs::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  max-width: 200px;
+  padding: 0 6px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  cursor: default;
+  transition: background-color 0.1s;
+}
+
+.tab:hover:not(.active) { background: var(--hover); }
+
+/* Where a dragged tab will land. */
+.tab { position: relative; }
+
+.tab.drop-before::after,
+.tab.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.tab.drop-before::after { left: -1px; }
+.tab.drop-after::after { right: -2px; }
+
+.tab.active {
+  color: var(--fg);
+  font-weight: 600;
+  background: var(--bg);
+  border-bottom-color: transparent;
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab > .icon { color: var(--icon); opacity: 0.8; }
+
+.tab-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab.dirty .tab-name::before {
+  content: "• ";
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.tab-close,
+.tab-new {
+  display: grid;
+  place-items: center;
+  flex: none;
+  padding: 0;
+  color: var(--icon);
+  background: none;
+  border: none;
+}
+
+.tab-close {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.1s, background-color 0.1s;
+}
+
+.tab:hover .tab-close,
+.tab.active .tab-close { opacity: 1; }
+
+.tab-new {
+  width: 34px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-close:hover { color: var(--fg); background: var(--line); }
+.tab-new:hover { color: var(--fg); background: var(--hover); }
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
@@ -366,9 +483,7 @@ body.sidebar-hidden #sidebar { display: none; }
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--style-color, var(--fg));
-  font-weight: var(--style-weight, normal);
-  font-style: var(--style-slant, normal);
+  color: var(--fg);
 }
 
 .overview-item.untitled { color: var(--muted); font-style: italic; }

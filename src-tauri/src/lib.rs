@@ -67,12 +67,45 @@ fn enable_spell_checking_in(webview: &tauri::WebviewWindow) {
     });
 }
 
+/// The standard macOS menu without "Close Window": its ⌘W would close the
+/// whole window, and in Outline ⌘W closes the current tab (see main.ts).
+#[cfg(target_os = "macos")]
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItemKind};
+    let menu = Menu::default(app)?;
+    for item in menu.items()? {
+        let MenuItemKind::Submenu(submenu) = item else { continue };
+        for entry in submenu.items()? {
+            if let MenuItemKind::Predefined(predefined) = &entry {
+                if predefined.text()? == "Close Window" {
+                    submenu.remove(&entry)?;
+                }
+            }
+        }
+        // Tidy up what's left: the File menu held only that item, and the
+        // Window menu's last separator came before it.
+        let entries = submenu.items()?;
+        if entries.is_empty() && submenu.text()? == "File" {
+            menu.remove(&submenu)?;
+        } else if let Some(MenuItemKind::Predefined(last)) = entries.last() {
+            if last.text()?.is_empty() {
+                submenu.remove(last)?;
+            }
+        }
+    }
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "macos")]
     enable_spell_checking();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(app_menu);
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|_app| {

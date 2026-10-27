@@ -5,12 +5,12 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
 import { Filters } from "./filters";
-import { FileText, Globe, Plus, insertIcons } from "./icons";
+import { FileText, Globe, Plus, X, icon, insertIcons } from "./icons";
 import { toggleMenu, type MenuEntry } from "./menu";
 import { allTags, assignIds, cleanTags, newDoc, type Link, type OutlineDoc } from "./model";
 import { promptText } from "./prompt";
 import { Sidebar } from "./sidebar";
-import { OutlineView, isMac } from "./view";
+import { OutlineView, isMac, type ViewState } from "./view";
 import { chooseZoteroItems } from "./zotero";
 
 const FILTERS = [{ name: "Outline (OPML)", extensions: ["opml"] }];
@@ -18,24 +18,195 @@ const FILTERS = [{ name: "Outline (OPML)", extensions: ["opml"] }];
 const view = new OutlineView(document.getElementById("outline")!);
 const sidebar = new Sidebar(document.getElementById("sidebar")!, view);
 const filters = new Filters(view);
-let path: string | null = null;
-let dirty = false;
 
 // ---------------------------------------------------------------------------
-// Files
+// Tabs
 // ---------------------------------------------------------------------------
+
+/**
+ * An open outline. One view shows the active tab; the others keep their
+ * document, selection, filter and undo history in `state` until they're
+ * shown again.
+ */
+interface Tab {
+  path: string | null;
+  dirty: boolean;
+  state: ViewState | null;
+}
+
+const tabBar = document.getElementById("tabs")!;
+const tabs: Tab[] = [];
+let active: Tab;
 
 function fileName(p: string | null): string {
   return p ? p.split(/[\\/]/).pop()!.replace(/\.opml$/i, "") : "Untitled";
 }
 
+/** Opens a document in a new tab and shows it. */
+function addTab(doc: OutlineDoc, path: string | null) {
+  // New tabs open next to the one showing.
+  const index = active ? tabs.indexOf(active) + 1 : tabs.length;
+  if (active) active.state = view.saveState();
+  active = { path, dirty: false, state: null };
+  tabs.splice(index, 0, active);
+  view.load(doc);
+  showActive();
+}
+
+function switchTo(tab: Tab) {
+  if (tab === active) return;
+  active.state = view.saveState();
+  active = tab;
+  view.restoreState(tab.state!);
+  tab.state = null;
+  showActive();
+}
+
+/** Switches to the tab `offset` places along, wrapping round. */
+function switchBy(offset: number) {
+  switchTo(tabs[(tabs.indexOf(active) + offset + tabs.length) % tabs.length]);
+}
+
+/** Brings everything outside the outline up to date after the active tab changes. */
+function showActive() {
+  sidebar.refresh();
+  renderTabs();
+  updateTitle();
+}
+
+async function closeTab(tab: Tab) {
+  if (tab.dirty) switchTo(tab); // so it's clear which outline the question is about
+  if (!(await confirmDiscard(tab))) return;
+  const index = tabs.indexOf(tab);
+  tabs.splice(index, 1);
+  if (tab !== active) {
+    renderTabs();
+  } else if (tabs.length) {
+    active = tabs[Math.min(index, tabs.length - 1)];
+    view.restoreState(active.state!);
+    active.state = null;
+    showActive();
+  } else {
+    active = undefined!;
+    addTab(newDoc(), null);
+  }
+}
+
+function renderTabs() {
+  const items = tabs.map((tab) => {
+    const item = document.createElement("div");
+    item.className = "tab";
+    item.classList.toggle("active", tab === active);
+    item.classList.toggle("dirty", tab.dirty);
+    item.title = (tab.path ?? "Untitled") + (tab.dirty ? " (unsaved)" : "");
+    item.addEventListener("mousedown", (e) => {
+      if (e.button === 1) e.preventDefault(); // no autoscroll on middle-click
+    });
+    item.addEventListener("click", () => switchTo(tab));
+    item.draggable = true;
+    item.addEventListener("dragstart", (e) => {
+      draggedTab = tab;
+      e.dataTransfer!.setData("application/x-outline-tab", "");
+      e.dataTransfer!.effectAllowed = "move";
+    });
+    item.addEventListener("dragend", () => {
+      draggedTab = null;
+      showTabDrop(null);
+    });
+    item.addEventListener("auxclick", (e) => {
+      if (e.button === 1) closeTab(tab);
+    });
+
+    const name = document.createElement("span");
+    name.className = "tab-name";
+    name.textContent = fileName(tab.path);
+
+    const close = document.createElement("button");
+    close.className = "tab-close";
+    close.title = `Close (${isMac ? "⌘" : "Ctrl+"}W)`;
+    close.setAttribute("aria-label", `Close ${fileName(tab.path)}`);
+    close.append(icon(X, 13));
+    close.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeTab(tab);
+    });
+
+    item.append(icon(FileText, 14), name, close);
+    return item;
+  });
+
+  const add = document.createElement("button");
+  add.className = "tab-new";
+  add.title = `New outline (${isMac ? "⌘" : "Ctrl+"}N)`;
+  add.setAttribute("aria-label", "New outline");
+  add.append(icon(Plus, 15));
+  add.addEventListener("click", newFile);
+
+  tabBar.replaceChildren(...items, add);
+  tabBar.querySelector(".tab.active")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+// Dragging a tab along the bar moves it.
+
+let draggedTab: Tab | null = null;
+
+/** Where a dragged tab would land: the index of the tab it would go before (or tabs.length, for the end). */
+function tabDropIndex(e: DragEvent): number {
+  const items = [...tabBar.querySelectorAll<HTMLElement>(".tab")];
+  const index = items.findIndex((item) => {
+    const box = item.getBoundingClientRect();
+    return e.clientX < box.left + box.width / 2;
+  });
+  return index < 0 ? items.length : index;
+}
+
+/** Shows a line where a dragged tab would land, or hides it (null). */
+function showTabDrop(index: number | null) {
+  for (const item of tabBar.querySelectorAll(".drop-before, .drop-after")) item.classList.remove("drop-before", "drop-after");
+  if (index === null) return;
+  const items = tabBar.querySelectorAll(".tab");
+  if (index < items.length) items[index].classList.add("drop-before");
+  else items[items.length - 1]?.classList.add("drop-after");
+}
+
+tabBar.addEventListener("dragover", (e) => {
+  if (!draggedTab) return;
+  e.preventDefault();
+  e.dataTransfer!.dropEffect = "move";
+  showTabDrop(tabDropIndex(e));
+});
+
+tabBar.addEventListener("dragleave", (e) => {
+  if (!tabBar.contains(e.relatedTarget as Node | null)) showTabDrop(null);
+});
+
+tabBar.addEventListener("drop", (e) => {
+  if (!draggedTab) return;
+  e.preventDefault();
+  const from = tabs.indexOf(draggedTab);
+  const to = tabDropIndex(e);
+  tabs.splice(from, 1);
+  tabs.splice(to > from ? to - 1 : to, 0, draggedTab);
+  draggedTab = null;
+  renderTabs();
+});
+
+// ---------------------------------------------------------------------------
+// Files
+// ---------------------------------------------------------------------------
+
+function updateTitle() {
+  getCurrentWindow().setTitle(`${active.dirty ? "• " : ""}${fileName(active.path)} — Outline`);
+}
+
 function setDirty(value: boolean) {
-  dirty = value;
-  getCurrentWindow().setTitle(`${dirty ? "• " : ""}${fileName(path)} — Outline`);
+  active.dirty = value;
+  updateTitle();
+  renderTabs();
 }
 
 view.onChange = () => {
-  if (!dirty) setDirty(true);
+  if (!active.dirty) setDirty(true);
   sidebar.refresh();
 };
 view.onSelectionChange = () => sidebar.updateSelection();
@@ -44,11 +215,11 @@ view.onFilterChange = () => {
   sidebar.refresh();
 };
 
-/** Asks before throwing away unsaved changes. Returns true if it's OK to continue. */
-async function confirmDiscard(): Promise<boolean> {
-  view.flush();
-  if (!dirty) return true;
-  return ask(`Do you want to discard your changes to “${fileName(path)}”?`, {
+/** Asks before throwing away a tab's unsaved changes. Returns true if it's OK to continue. */
+async function confirmDiscard(tab: Tab): Promise<boolean> {
+  if (tab === active) view.flush();
+  if (!tab.dirty) return true;
+  return ask(`Do you want to discard your changes to “${fileName(tab.path)}”?`, {
     title: "Unsaved changes",
     kind: "warning",
     okLabel: "Discard",
@@ -56,42 +227,55 @@ async function confirmDiscard(): Promise<boolean> {
   });
 }
 
-async function newFile() {
-  if (!(await confirmDiscard())) return;
-  path = null;
-  view.load(newDoc());
-  sidebar.refresh();
-  setDirty(false);
+/** Whether the active tab is a new outline nobody has typed in, which opening a file can replace. */
+function activeIsBlank(): boolean {
+  view.flush();
+  return !active.path && !active.dirty;
+}
+
+function newFile() {
+  addTab(newDoc(), null);
+  view.edit(view.selectedId!, "topic");
 }
 
 async function openFile() {
-  if (!(await confirmDiscard())) return;
-  const chosen = await open({ multiple: false, directory: false, filters: FILTERS });
-  if (!chosen) return;
-  try {
-    const doc = await invoke<OutlineDoc>("open_outline", { path: chosen });
-    assignIds(doc.rows);
-    path = chosen;
-    view.load(doc);
-    sidebar.refresh();
-    setDirty(false);
-  } catch (error) {
-    await message(String(error), { title: "Could not open file", kind: "error" });
+  const chosen = await open({ multiple: true, directory: false, filters: FILTERS });
+  if (!chosen?.length) return;
+  for (const path of chosen) {
+    const already = tabs.find((tab) => tab.path === path);
+    if (already) {
+      switchTo(already);
+      continue;
+    }
+    try {
+      const doc = await invoke<OutlineDoc>("open_outline", { path });
+      assignIds(doc.rows);
+      if (activeIsBlank()) {
+        active.path = path;
+        view.load(doc);
+        showActive();
+      } else {
+        addTab(doc, path);
+      }
+    } catch (error) {
+      await message(`${fileName(path)}: ${error}`, { title: "Could not open file", kind: "error" });
+    }
   }
 }
 
 async function saveFile(saveAs = false) {
   view.flush();
-  let target = path;
+  const tab = active;
+  let target = tab.path;
   if (!target || saveAs) {
-    target = await save({ filters: FILTERS, defaultPath: `${fileName(path)}.opml` });
+    target = await save({ filters: FILTERS, defaultPath: `${fileName(tab.path)}.opml` });
     if (!target) return;
     if (!/\.opml$/i.test(target)) target += ".opml";
   }
   try {
     view.doc.title = fileName(target);
     await invoke("save_outline", { path: target, doc: view.doc });
-    path = target;
+    tab.path = target;
     setDirty(false);
   } catch (error) {
     await message(String(error), { title: "Could not save file", kind: "error" });
@@ -99,7 +283,17 @@ async function saveFile(saveAs = false) {
 }
 
 getCurrentWindow().onCloseRequested(async (event) => {
-  if (!(await confirmDiscard())) event.preventDefault();
+  view.flush();
+  const unsaved = tabs.filter((tab) => tab.dirty);
+  if (!unsaved.length) return;
+  const names = unsaved.map((tab) => `“${fileName(tab.path)}”`).join(", ");
+  const discard = await ask(
+    unsaved.length === 1
+      ? `Do you want to discard your changes to ${names}?`
+      : `${unsaved.length} outlines have unsaved changes: ${names}. Do you want to discard them?`,
+    { title: "Unsaved changes", kind: "warning", okLabel: "Discard", cancelLabel: "Cancel" },
+  );
+  if (!discard) event.preventDefault();
 });
 
 // ---------------------------------------------------------------------------
@@ -301,13 +495,21 @@ window.addEventListener(
   (e) => {
     const mod = isMac ? e.metaKey : e.ctrlKey;
     const key = e.key.toLowerCase();
-    if (mod && ["n", "o", "s"].includes(key)) {
+    if (mod && !e.shiftKey && ["n", "t", "o", "w"].includes(key) || mod && key === "s") {
       // File shortcuts work everywhere, so stop the editor seeing them.
       e.preventDefault();
       e.stopPropagation();
-      if (key === "n") newFile();
+      if (key === "n" || key === "t") newFile();
       else if (key === "o") openFile();
+      else if (key === "w") closeTab(active);
       else saveFile(e.shiftKey);
+      return;
+    }
+    // Next and previous tab: Ctrl+Tab and Ctrl+Shift+Tab, or ⌘⇧] and ⌘⇧[ on a Mac.
+    if (e.ctrlKey && e.key === "Tab" || mod && e.shiftKey && ["[", "]", "{", "}"].includes(e.key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      switchBy(e.key === "Tab" ? (e.shiftKey ? -1 : 1) : ["[", "{"].includes(e.key) ? -1 : 1);
       return;
     }
     if (mod && ["=", "+", "-", "_"].includes(e.key)) {
@@ -342,5 +544,5 @@ window.addEventListener(
   true,
 );
 
-setDirty(false);
+addTab(view.doc, null);
 view.edit(view.selectedId!, "topic");

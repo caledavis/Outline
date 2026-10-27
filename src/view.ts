@@ -61,6 +61,22 @@ export interface Filter {
 
 const NO_FILTER: Filter = { text: "", tags: [], columns: {} };
 
+/**
+ * Everything about an outline on screen that isn't saved in its file, so a
+ * tab can be put aside and brought back exactly as it was.
+ */
+export interface ViewState {
+  doc: OutlineDoc;
+  selectedId: string | null;
+  selection: Set<string>;
+  anchorId: string | null;
+  filter: Filter;
+  pinned: Set<string>;
+  undoStack: string[];
+  redoStack: string[];
+  scrollTop: number;
+}
+
 const COLUMN_TYPES: [ColumnType, string, Parameters<typeof icon>[0]][] = [
   ["text", "Text", Type],
   ["checkbox", "Checkbox", SquareCheck],
@@ -144,7 +160,7 @@ export class OutlineView {
     doc.defaultStyle = { ...doc.defaultStyle, id: model.DEFAULT_STYLE, name: "Default" };
     model.addMissingRowDataColumns(doc);
     this.filter = NO_FILTER;
-    this.pinned.clear();
+    this.pinned = new Set();
     this.root.classList.remove("filtering");
     this.undoStack = [];
     this.redoStack = [];
@@ -152,6 +168,43 @@ export class OutlineView {
     this.selectOnly(doc.rows[0].id);
     this.render();
     this.onSelectionChange();
+    this.onFilterChange();
+  }
+
+  /** Puts this outline aside (see restoreState), finishing any edit first. */
+  saveState(): ViewState {
+    this.stopEditing();
+    this.openNoteId = null;
+    return {
+      doc: this.doc,
+      selectedId: this.selectedId,
+      selection: this.selection,
+      anchorId: this.anchorId,
+      filter: this.filter,
+      pinned: this.pinned,
+      undoStack: this.undoStack,
+      redoStack: this.redoStack,
+      scrollTop: this.root.scrollTop,
+    };
+  }
+
+  /** Brings back an outline put aside with saveState. */
+  restoreState(state: ViewState) {
+    this.stopEditing(false);
+    ({
+      doc: this.doc,
+      selectedId: this.selectedId,
+      selection: this.selection,
+      anchorId: this.anchorId,
+      filter: this.filter,
+      pinned: this.pinned,
+      undoStack: this.undoStack,
+      redoStack: this.redoStack,
+    } = state);
+    this.root.classList.toggle("filtering", this.filtering);
+    this.render();
+    this.root.scrollTop = state.scrollTop;
+    this.updateSelection();
     this.onFilterChange();
   }
 
