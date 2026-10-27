@@ -2,8 +2,9 @@
 // means only the ones we use end up in the app.
 
 import {
-  Bold, ChevronDown, ChevronRight, FilePlus, FolderOpen, GripVertical, Italic,
-  Link, Plus, Save, StickyNote, Strikethrough, Underline, X, createElement,
+  Bold, ChevronDown, ChevronRight, ChevronUp, FilePlus, FolderOpen, GripVertical, Italic,
+  Link, PanelLeft, Pencil, Plus, RotateCcw, Save, StickyNote, Strikethrough, Trash2,
+  Underline, X, createElement,
 } from "lucide";
 
 type IconNode = Parameters<typeof createElement>[0];
@@ -19,9 +20,10 @@ const BY_NAME: Record<string, IconNode> = {
   strikethrough: Strikethrough,
   link: Link,
   note: StickyNote,
+  sidebar: PanelLeft,
 };
 
-export { ChevronDown, ChevronRight, GripVertical, Plus, X };
+export { Bold, ChevronDown, ChevronRight, ChevronUp, GripVertical, Italic, Pencil, Plus, RotateCcw, Trash2, X };
 
 const cache = new Map<IconNode, SVGElement>();
 

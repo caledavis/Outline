@@ -11,6 +11,10 @@
   <body>
     <header class="toolbar">
       <div class="group">
+        <button data-action="sidebar" data-icon="sidebar" title="Show or hide the sidebar (Mod+\)" aria-label="Sidebar"></button>
+      </div>
+      <div class="divider"></div>
+      <div class="group">
         <button data-action="new" data-icon="file-plus" title="New (Mod+N)" aria-label="New"></button>
         <button data-action="open" data-icon="folder-open" title="Open… (Mod+O)" aria-label="Open"></button>
         <button data-action="save" data-icon="save" title="Save (Mod+S)" aria-label="Save"></button>
@@ -29,7 +33,10 @@
       </div>
     </header>
 
-    <main id="outline"></main>
+    <div class="workspace">
+      <aside id="sidebar"></aside>
+      <main id="outline"></main>
+    </div>
 
     <dialog id="prompt">
       <form method="dialog">

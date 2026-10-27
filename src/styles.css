@@ -100,11 +100,241 @@ button {
 
 .toolbar button:disabled { opacity: 0.35; }
 
+/* Layout ------------------------------------------------------------------ */
+
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Sidebar ----------------------------------------------------------------- */
+
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: 240px;
+  background: var(--toolbar);
+  border-right: 1px solid var(--line);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body.sidebar-hidden #sidebar { display: none; }
+
+#sidebar section {
+  padding: 10px 8px;
+  overflow-y: auto;
+}
+
+/* The overview takes the spare height and scrolls; styles keep their size. */
+.overview-pane {
+  flex: 1;
+  min-height: 80px;
+}
+
+.styles-pane {
+  flex: none;
+  max-height: 65%;
+  border-top: 1px solid var(--line);
+}
+
+#sidebar h2 {
+  margin: 0 8px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.overview,
+.styles {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.overview-item,
+.style-apply {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 6px;
+}
+
+.overview-item {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--style-color, var(--fg));
+  font-weight: var(--style-weight, normal);
+  font-style: var(--style-slant, normal);
+}
+
+.overview-item.untitled { color: var(--muted); font-style: italic; }
+
+.overview-item:hover,
+.style-apply:hover { background: var(--hover); }
+
+.overview-item.active,
+.style-apply.active { background: var(--selected); }
+
+.style-item {
+  position: relative;
+  border-radius: 7px;
+}
+
+.style-item.open { background: var(--bg); box-shadow: 0 0 0 1px var(--line); margin: 4px 0; }
+
+.style-apply { padding-right: 34px; }
+
+.style-apply kbd {
+  flex: none;
+  min-width: 30px;
+  padding: 1px 4px;
+  color: var(--muted);
+  font: 11px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  text-align: center;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.style-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  /* Previews the style, without letting big sizes swamp the sidebar. */
+  font-size: min(var(--style-size, 14px), 22px);
+  font-weight: var(--style-weight, normal);
+  font-style: var(--style-slant, normal);
+  color: var(--style-color, var(--fg));
+  background: var(--style-background, none);
+  padding-inline: var(--style-pad, 0);
+  border-radius: 4px;
+}
+
+.style-name.plain { color: var(--muted); }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 5px;
+}
+
+.icon-button:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
+.icon-button:disabled { opacity: 0.3; }
+.icon-button.active { color: var(--accent); }
+.icon-button.danger:hover { color: #d93025; }
+
+.style-edit {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  visibility: hidden;
+}
+
+.style-item:hover .style-edit,
+.style-edit.active { visibility: visible; }
+
+.style-settings {
+  display: grid;
+  gap: 8px;
+  padding: 6px 8px 8px;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.field .label { color: var(--muted); font-size: 12px; }
+
+.style-settings input[type="text"],
+.style-settings input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.style-settings input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.size-field,
+.color-field,
+.toggle-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.size-field input { width: 64px !important; }
+.unit { color: var(--muted); font-size: 12px; }
+
+.color-field input[type="color"] {
+  width: 40px;
+  height: 26px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.color-field input.unset { opacity: 0.35; }
+
+.style-actions {
+  display: flex;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.style-actions .spacer { flex: 1; }
+
+.add-style {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 6px;
+}
+
+.add-style:hover:not(:disabled) { color: var(--fg); background: var(--hover); }
+.add-style:disabled { opacity: 0.4; }
+
 /* Outline grid ------------------------------------------------------------ */
 
 #outline {
   position: relative;
   flex: 1;
+  min-width: 0;
   overflow: auto;
   padding-bottom: 40vh;
 }
@@ -209,6 +439,11 @@ body.resizing {
   -webkit-user-select: none;
 }
 
+.row {
+  /* Leave room for the sticky header when a row is scrolled to the top. */
+  scroll-margin-top: 34px;
+}
+
 .row:hover { background: var(--hover); }
 .row.selected { background: var(--selected); }
 .row.dragging { opacity: 0.4; }
@@ -281,6 +516,9 @@ body.resizing {
   color: var(--muted);
 }
 
+/* Match the first line of the (possibly styled) text beside it. */
+.cell.topic .toggle { height: calc(var(--style-size, 14px) * 1.45); }
+
 .toggle:not(.leaf):hover { color: var(--fg); background: var(--line); }
 
 .toggle.leaf { pointer-events: none; }
@@ -297,12 +535,25 @@ body.resizing {
 .content {
   flex: 1;
   min-width: 0;
-  line-height: 20px;
+  line-height: 1.45;
   overflow-wrap: anywhere;
   cursor: text;
 }
 
 .content p { margin: 0; }
+
+/* A row's style (see updateStyleSheet in view.ts) sets these variables. */
+.cell .content {
+  font-size: var(--style-size, inherit);
+  font-weight: var(--style-weight, inherit);
+  font-style: var(--style-slant, inherit);
+  color: var(--style-color, inherit);
+  /* The highlight extends a little either side of the text, without moving it. */
+  background: var(--style-background, none);
+  padding-inline: var(--style-pad, 0);
+  margin-inline: calc(-1 * var(--style-pad, 0px));
+  border-radius: 4px;
+}
 .content a { color: var(--accent); }
 .content .ProseMirror { outline: none; white-space: pre-wrap; }
 
@@ -365,3 +616,6 @@ dialog menu button.primary {
   border-color: var(--accent);
   color: #fff;
 }
+
+.toggle-field .icon-button { border: 1px solid var(--line); }
+.toggle-field .icon-button.active { color: var(--accent); background: var(--selected); border-color: transparent; }

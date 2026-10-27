@@ -7,8 +7,8 @@
 //! - `text`  — the row's main ("Topic") column, as inline HTML (allowed by the spec)
 //! - `_note` — the row's note, a widely used convention (OmniOutliner, Workflowy…)
 //!
-//! Anything OPML has no standard place for (extra columns, collapsed rows) is
-//! stored in attributes under our own `ol:` XML namespace. Other apps ignore
+//! Anything OPML has no standard place for (extra columns, styles, collapsed
+//! rows) is stored in elements and attributes under our own `ol:` namespace. Other apps ignore
 //! those, so files stay readable everywhere.
 
 use std::collections::BTreeMap;
@@ -29,6 +29,8 @@ pub const TOPIC: &str = "topic";
 pub struct Document {
     pub title: String,
     pub columns: Vec<Column>,
+    #[serde(default)]
+    pub styles: Vec<Style>,
     pub rows: Vec<Row>,
 }
 
@@ -38,6 +40,26 @@ pub struct Column {
     pub name: String,
     #[serde(default)]
     pub width: Option<u32>,
+}
+
+/// A named look (text size, colour, weight…) that can be applied to rows.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Style {
+    pub id: String,
+    pub name: String,
+    /// Text size in pixels; `None` keeps the normal size.
+    #[serde(default)]
+    pub size: Option<u32>,
+    /// Text colour as `#rrggbb`; `None` keeps the normal colour.
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub bold: bool,
+    #[serde(default)]
+    pub italic: bool,
+    /// Highlight colour behind the text as `#rrggbb`, if any.
+    #[serde(default)]
+    pub background: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -50,6 +72,9 @@ pub struct Row {
     pub note: String,
     #[serde(default)]
     pub collapsed: bool,
+    /// The id of the style applied to this row, if any.
+    #[serde(default)]
+    pub style: Option<String>,
     #[serde(default)]
     pub children: Vec<Row>,
 }
@@ -62,7 +87,7 @@ pub fn parse(xml: &str) -> Result<Document, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(true);
 
-    let mut doc = Document { title: String::new(), columns: Vec::new(), rows: Vec::new() };
+    let mut doc = Document { title: String::new(), columns: Vec::new(), styles: Vec::new(), rows: Vec::new() };
     // Rows whose closing `</outline>` we haven't reached yet, outermost first.
     let mut open: Vec<Row> = Vec::new();
     let mut is_opml = false;
@@ -87,6 +112,7 @@ pub fn parse(xml: &str) -> Result<Document, String> {
                     attach(&mut open, &mut doc.rows, row);
                 }
                 "ol:column" => doc.columns.push(column_from(&e)?),
+                "ol:style" => doc.styles.push(style_from(&e)?),
                 _ => {}
             },
             Event::End(e) if e.name().as_ref() == "outline" => {
@@ -136,6 +162,7 @@ fn row_from(e: &BytesStart) -> Result<Row, String> {
             }
             "_note" => row.note = note_to_html(&value),
             "ol:collapsed" => row.collapsed = value == "true",
+            "ol:style" if is_valid_id(&value) => row.style = Some(value),
             _ => {
                 if let Some(column) = key.strip_prefix("ol:col-") {
                     row.cells.insert(column.into(), value);
@@ -162,6 +189,26 @@ fn column_from(e: &BytesStart) -> Result<Column, String> {
     Ok(column)
 }
 
+fn style_from(e: &BytesStart) -> Result<Style, String> {
+    let mut style = Style::default();
+    for (key, value) in attributes(e)? {
+        match key.as_str() {
+            "id" => style.id = value,
+            "name" => style.name = value,
+            "size" => style.size = value.parse().ok().map(|size: u32| size.clamp(MIN_SIZE, MAX_SIZE)),
+            "color" => style.color = Some(value).filter(|c| is_valid_color(c)),
+            "bold" => style.bold = value == "true",
+            "italic" => style.italic = value == "true",
+            "background" => style.background = Some(value).filter(|c| is_valid_color(c)),
+            _ => {}
+        }
+    }
+    if !is_valid_id(&style.id) {
+        return Err(format!("Invalid style id {:?} in file", style.id));
+    }
+    Ok(style)
+}
+
 /// Notes written by other apps are plain text; turn each line into a paragraph.
 fn note_to_html(note: &str) -> String {
     if note.trim_start().starts_with('<') {
@@ -180,6 +227,9 @@ pub fn write(doc: &Document) -> Result<String, String> {
     if let Some(bad) = doc.columns.iter().find(|c| !is_valid_id(&c.id)) {
         return Err(format!("Invalid column id {:?}", bad.id));
     }
+    if let Some(bad) = doc.styles.iter().find(|s| !is_valid_id(&s.id)) {
+        return Err(format!("Invalid style id {:?}", bad.id));
+    }
 
     let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     out += &format!("<opml version=\"2.0\" xmlns:ol=\"{NAMESPACE}\">\n");
@@ -189,6 +239,25 @@ pub fn write(doc: &Document) -> Result<String, String> {
         out += &format!("    <ol:column id=\"{}\" name=\"{}\"", column.id, attr(&column.name));
         if let Some(width) = column.width {
             out += &format!(" width=\"{width}\"");
+        }
+        out += "/>\n";
+    }
+    for style in &doc.styles {
+        out += &format!("    <ol:style id=\"{}\" name=\"{}\"", style.id, attr(&style.name));
+        if let Some(size) = style.size {
+            out += &format!(" size=\"{}\"", size.clamp(MIN_SIZE, MAX_SIZE));
+        }
+        if let Some(color) = style.color.as_ref().filter(|c| is_valid_color(c)) {
+            out += &format!(" color=\"{color}\"");
+        }
+        if style.bold {
+            out += " bold=\"true\"";
+        }
+        if style.italic {
+            out += " italic=\"true\"";
+        }
+        if let Some(background) = style.background.as_ref().filter(|c| is_valid_color(c)) {
+            out += &format!(" background=\"{background}\"");
         }
         out += "/>\n";
     }
@@ -215,6 +284,9 @@ fn write_row(out: &mut String, row: &Row, columns: &[Column], depth: usize) {
     if row.collapsed {
         *out += " ol:collapsed=\"true\"";
     }
+    if let Some(style) = row.style.as_ref().filter(|s| is_valid_id(s)) {
+        *out += &format!(" ol:style=\"{style}\"");
+    }
 
     if row.children.is_empty() {
         *out += "/>\n";
@@ -233,7 +305,14 @@ fn attr(text: &str) -> String {
     escape(text).replace('\n', "&#10;").replace('\r', "&#13;").replace('\t', "&#9;")
 }
 
-/// Column ids become part of attribute names, so keep them simple.
+const MIN_SIZE: u32 = 6;
+const MAX_SIZE: u32 = 96;
+
+fn is_valid_color(color: &str) -> bool {
+    color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Column and style ids become part of attribute names, so keep them simple.
 fn is_valid_id(id: &str) -> bool {
     id.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
         && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
@@ -252,6 +331,7 @@ mod tests {
         let mut parent = Row::default();
         parent.cells.insert(TOPIC.into(), "<strong>Chapter 1</strong>".into());
         parent.collapsed = true;
+        parent.style = Some("s1".into());
         parent.children.push(child);
 
         let mut empty = Row::default();
@@ -262,6 +342,17 @@ mod tests {
             columns: vec![
                 Column { id: TOPIC.into(), name: "Topic".into(), width: None },
                 Column { id: "c2".into(), name: "Source & page".into(), width: Some(180) },
+            ],
+            styles: vec![
+                Style { id: "s1".into(), name: "Heading".into(), size: Some(18), bold: true, ..Style::default() },
+                Style {
+                    id: "s2".into(),
+                    name: "Red & highlighted".into(),
+                    color: Some("#c2410c".into()),
+                    italic: true,
+                    background: Some("#fff3bf".into()),
+                    ..Style::default()
+                },
             ],
             rows: vec![parent, empty],
         }
@@ -302,6 +393,18 @@ mod tests {
     fn rejects_non_opml() {
         assert!(parse("<html><body/></html>").is_err());
         assert!(parse("<opml><body><outline text='x'></body></opml>").is_err());
+    }
+
+    #[test]
+    fn ignores_unsafe_style_values() {
+        let xml = r##"<opml version="2.0"><head>
+              <ol:style id="s1" name="Odd" size="500" color="red;background:url(x)" background="#12345z"/>
+            </head><body><outline text="x" ol:style="s1 evil"/></body></opml>"##;
+        let doc = parse(xml).unwrap();
+        assert_eq!(doc.styles[0].size, Some(MAX_SIZE));
+        assert_eq!(doc.styles[0].color, None);
+        assert_eq!(doc.styles[0].background, None);
+        assert_eq!(doc.rows[0].style, None);
     }
 
     #[test]

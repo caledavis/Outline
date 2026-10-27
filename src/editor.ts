@@ -12,6 +12,8 @@ const OUTLINE_KEYS = [
   "Enter", "Tab", "Shift-Tab", "Escape", "ArrowUp", "ArrowDown",
   "Mod-'", "Mod-.", "Mod-Backspace", "Mod-Shift-ArrowUp", "Mod-Shift-ArrowDown",
   "Mod-z", "Mod-Shift-z", "Mod-y", "Mod-k",
+  // Apply styles 1–9, or remove the style with 0.
+  "Mod-0", "Mod-1", "Mod-2", "Mod-3", "Mod-4", "Mod-5", "Mod-6", "Mod-7", "Mod-8", "Mod-9",
 ];
 
 export interface EditorHooks {

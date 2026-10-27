@@ -8,7 +8,7 @@ import { createEditor, editorHtml, type EditorKind } from "./editor";
 import { ChevronDown, ChevronRight, GripVertical, Plus, X, icon } from "./icons";
 import * as model from "./model";
 import { TOPIC, type Column, type OutlineDoc, type Row } from "./model";
-import { sanitize } from "./sanitize";
+import { plainText, sanitize } from "./sanitize";
 
 /** Field name used for a row's note (every other field is a column id). */
 const NOTE = "note";
@@ -49,7 +49,12 @@ const MIN_COLUMN_PX = 60;
 
 export class OutlineView {
   doc: OutlineDoc = model.newDoc();
+  /** The row with the keyboard focus; always one of the selected rows. */
   selectedId: string | null = null;
+  /** All selected rows (several can be selected with Shift- or ⌘-click). */
+  selection = new Set<string>();
+  /** Where a Shift-click selection range starts. */
+  private anchorId: string | null = null;
 
   /** Called whenever the document changes (including while typing). */
   onChange = () => {};
@@ -57,6 +62,8 @@ export class OutlineView {
   onEditorChange: (editor: Editor | null) => void = () => {};
   /** Called when the user presses the link shortcut. */
   onLinkRequest = () => {};
+  /** Called when the selected rows change. */
+  onSelectionChange = () => {};
 
   private editing: Editing | null = null;
   /** A row whose (still empty) note is open for editing. */
@@ -65,9 +72,15 @@ export class OutlineView {
   private redoStack: string[] = [];
   private drag: Drag | null = null;
   private dropLine = el("div", "drop-line");
+  private styleSheet = document.head.appendChild(el("style"));
 
   constructor(private root: HTMLElement) {
     root.addEventListener("click", (e) => this.handleClick(e));
+    root.addEventListener("mousedown", (e) => {
+      // Shift- and ⌘-clicks select rows; stop them selecting text as well.
+      const inEditor = (e.target as HTMLElement).closest(".ProseMirror");
+      if ((e.shiftKey || (isMac ? e.metaKey : e.ctrlKey)) && !inEditor) e.preventDefault();
+    });
     root.addEventListener("dragstart", (e) => this.handleDragStart(e));
     root.addEventListener("dragover", (e) => this.handleDragOver(e));
     root.addEventListener("drop", (e) => this.handleDrop(e));
@@ -82,11 +95,13 @@ export class OutlineView {
   load(doc: OutlineDoc) {
     this.stopEditing(false);
     this.doc = doc;
+    doc.styles ??= [];
     this.undoStack = [];
     this.redoStack = [];
     if (doc.rows.length === 0) doc.rows.push(model.newRow());
-    this.selectedId = doc.rows[0].id;
+    this.selectOnly(doc.rows[0].id);
     this.render();
+    this.onSelectionChange();
   }
 
   // -------------------------------------------------------------------------
@@ -95,6 +110,7 @@ export class OutlineView {
 
   render() {
     this.updateColumnWidths();
+    this.updateStyleSheet();
     const rows = el("div", "rows");
     for (const { row, depth } of model.visibleRows(this.doc)) rows.append(this.renderRow(row, depth));
     this.root.replaceChildren(this.renderHeader(), rows);
@@ -164,7 +180,8 @@ export class OutlineView {
   private renderRow(row: Row, depth: number): HTMLElement {
     const rowEl = el("div", "row");
     rowEl.dataset.id = row.id;
-    rowEl.classList.toggle("selected", row.id === this.selectedId);
+    rowEl.classList.toggle("selected", this.selection.has(row.id));
+    if (row.style) rowEl.dataset.style = row.style;
 
     const gutter = el("div", "gutter");
     const handle = el("span", "handle");
@@ -209,13 +226,108 @@ export class OutlineView {
     return this.root.querySelector(`.row[data-id="${id}"]`);
   }
 
+  /**
+   * Styles are drawn with a generated style sheet: rows (and the sidebar's
+   * previews) carry a `data-style` attribute, so changing a style only means
+   * rewriting this sheet, not redrawing the outline.
+   */
+  updateStyleSheet() {
+    this.styleSheet.textContent = this.doc.styles
+      .filter((style) => /^[a-z][a-z0-9_-]*$/i.test(style.id))
+      .map((style) => {
+        const rules: string[] = [];
+        if (Number.isFinite(style.size)) rules.push(`--style-size: ${Math.min(96, Math.max(6, style.size!))}px`);
+        if (model.isColor(style.color)) rules.push(`--style-color: ${style.color}`);
+        if (style.bold) rules.push("--style-weight: 650");
+        if (style.italic) rules.push("--style-slant: italic");
+        if (model.isColor(style.background)) rules.push(`--style-background: ${style.background}`, "--style-pad: 4px");
+        return `[data-style="${style.id}"] { ${rules.join("; ")} }`;
+      })
+      .join("\n");
+  }
+
+  /** The plain text of a row's Topic, including any edits still being typed. */
+  topicText(row: Row): string {
+    if (this.editing?.rowId === row.id && this.editing.field === TOPIC) return this.editing.editor.getText();
+    return plainText(row.cells[TOPIC] ?? "");
+  }
+
+  // -------------------------------------------------------------------------
+  // Selection
+  // -------------------------------------------------------------------------
+
+  /** Selects just this row. */
   select(id: string | null) {
+    this.selectOnly(id);
+    this.updateSelection(true);
+  }
+
+  /** Selects a row and scrolls it to the top of the outline. */
+  reveal(id: string) {
+    this.stopEditing();
+    this.select(id);
+    this.rowElement(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
+  /** Changes the selection without updating the screen (for use before a redraw). */
+  private selectOnly(id: string | null) {
     this.selectedId = id;
-    this.root.querySelector(".row.selected")?.classList.remove("selected");
-    if (!id) return;
-    const rowEl = this.rowElement(id);
-    rowEl?.classList.add("selected");
-    rowEl?.scrollIntoView({ block: "nearest" });
+    this.anchorId = id;
+    this.selection = new Set(id ? [id] : []);
+  }
+
+  /** Selects every visible row from the anchor row to this one. */
+  private extendSelection(id: string) {
+    const ids = model.visibleRows(this.doc).map((v) => v.row.id);
+    const to = ids.indexOf(id);
+    const from = ids.indexOf(this.anchorId ?? id);
+    if (to < 0) return;
+    const [first, last] = from < 0 ? [to, to] : [Math.min(from, to), Math.max(from, to)];
+    this.selection = new Set(ids.slice(first, last + 1));
+    this.selectedId = id;
+    this.updateSelection(true);
+  }
+
+  private extendSelectionBy(delta: -1 | 1) {
+    const ids = model.visibleRows(this.doc).map((v) => v.row.id);
+    const next = ids[ids.indexOf(this.selectedId!) + delta];
+    if (next) this.extendSelection(next);
+  }
+
+  /** Adds a row to the selection, or removes it if it's already selected. */
+  private toggleSelected(id: string) {
+    if (this.selection.has(id) && this.selection.size > 1) {
+      this.selection.delete(id);
+      if (this.selectedId === id) this.selectedId = [...this.selection][0];
+    } else {
+      this.selection.add(id);
+      this.selectedId = id;
+    }
+    this.anchorId = id;
+    this.updateSelection();
+  }
+
+  /** Brings the screen up to date with the selection, dropping rows that no longer exist. */
+  private updateSelection(scroll = false) {
+    for (const id of this.selection) if (!model.locate(this.doc, id)) this.selection.delete(id);
+    if (!this.selectedId || !this.selection.has(this.selectedId)) {
+      this.selectedId = [...this.selection][0] ?? null;
+    }
+    for (const rowEl of this.root.querySelectorAll<HTMLElement>(".row")) {
+      rowEl.classList.toggle("selected", this.selection.has(rowEl.dataset.id!));
+    }
+    if (scroll && this.selectedId) this.rowElement(this.selectedId)?.scrollIntoView({ block: "nearest" });
+    this.onSelectionChange();
+  }
+
+  /** The styles used by the selected rows (null meaning "no style"). */
+  selectedStyles(): Set<string | null> {
+    const styles = new Set<string | null>();
+    for (const id of this.selection) {
+      const row = model.locate(this.doc, id)?.row;
+      if (row) styles.add(row.style ?? null);
+    }
+    return styles;
   }
 
   // -------------------------------------------------------------------------
@@ -334,6 +446,10 @@ export class OutlineView {
       case "ArrowDown":
         this.moveSelection(key === "ArrowUp" ? -1 : 1);
         return true;
+      case "Shift-ArrowUp":
+      case "Shift-ArrowDown":
+        this.extendSelectionBy(key === "Shift-ArrowUp" ? -1 : 1);
+        return true;
       case "Backspace":
       case "Delete":
         this.deleteRow();
@@ -362,8 +478,13 @@ export class OutlineView {
       case "Mod-Backspace": this.deleteRow(); return true;
       case "Mod-Shift-ArrowUp": this.moveRow(-1); return true;
       case "Mod-Shift-ArrowDown": this.moveRow(1); return true;
-      default: return false;
     }
+    const digit = key.match(/^Mod-(\d)$/);
+    if (digit) {
+      this.applyStyleNumber(Number(digit[1]));
+      return true;
+    }
+    return false;
   }
 
   private handleClick(e: MouseEvent) {
@@ -380,6 +501,13 @@ export class OutlineView {
     }
     if (target.closest(".toggle")) {
       if (rowId) this.toggleCollapse(rowId);
+      return;
+    }
+    const modifier = e.shiftKey || (isMac ? e.metaKey : e.ctrlKey);
+    if (rowId && modifier && !target.closest(".ProseMirror")) {
+      this.stopEditing();
+      if (e.shiftKey) this.extendSelection(rowId);
+      else this.toggleSelected(rowId);
       return;
     }
     const field = target.closest<HTMLElement>("[data-field]")?.dataset.field;
@@ -415,7 +543,7 @@ export class OutlineView {
    * undo and redraws. `then` says which cell to edit afterwards; by default
    * the cell being edited (if any) carries on being edited.
    */
-  private change(operation: () => boolean, then?: { rowId: string; field: string; cursor?: CursorPosition }) {
+  change(operation: () => boolean, then?: { rowId: string; field: string; cursor?: CursorPosition }) {
     const editing = this.editing;
     const cursor = editing?.editor.state.selection.from;
     this.stopEditing();
@@ -431,7 +559,37 @@ export class OutlineView {
 
     const next = then ?? (editing && { rowId: editing.rowId, field: editing.field, cursor });
     if (next && this.rowElement(next.rowId)) this.edit(next.rowId, next.field, next.cursor ?? "end");
-    else this.select(this.selectedId);
+    else this.updateSelection(true);
+  }
+
+  /** The document's current state, to pass to commit() after changing it directly. */
+  snapshot(): string {
+    this.flush();
+    return JSON.stringify(this.doc);
+  }
+
+  /** Records direct changes made since snapshot() so they can be undone. */
+  commit(snapshot: string) {
+    if (JSON.stringify(this.doc) === snapshot) return;
+    this.pushUndo(snapshot);
+    this.onChange();
+  }
+
+  /** Applies a style to the selected rows, or removes it if they all have it already. */
+  applyStyle(styleId: string | null) {
+    const rows = [...this.selection].map((id) => model.locate(this.doc, id)?.row).filter((r) => !!r);
+    const style = styleId && rows.some((r) => r.style !== styleId) ? styleId : null;
+    this.change(() => {
+      if (rows.every((r) => (r.style ?? null) === style)) return false;
+      for (const row of rows) row.style = style;
+      return true;
+    });
+  }
+
+  /** Mod+1 to Mod+9 apply the styles in order; Mod+0 removes the style. */
+  applyStyleNumber(n: number) {
+    if (n === 0) this.applyStyle(null);
+    else if (this.doc.styles[n - 1]) this.applyStyle(this.doc.styles[n - 1].id);
   }
 
   addRow() {
@@ -439,19 +597,24 @@ export class OutlineView {
     this.change(() => (model.insertAfter(this.doc, this.selectedId, row), true), { rowId: row.id, field: TOPIC });
   }
 
+  /** The selected rows to act on, leaving out any inside another selected row. */
+  private selectedRows(): string[] {
+    return model.topmost(this.doc, this.selection);
+  }
+
   indent() {
-    const id = this.selectedId;
-    if (id) this.change(() => model.indent(this.doc, id));
+    const ids = this.selectedRows();
+    this.change(() => model.indentRows(this.doc, ids));
   }
 
   outdent() {
-    const id = this.selectedId;
-    if (id) this.change(() => model.outdent(this.doc, id));
+    const ids = this.selectedRows();
+    this.change(() => model.outdentRows(this.doc, ids));
   }
 
   moveRow(delta: -1 | 1) {
-    const id = this.selectedId;
-    if (id) this.change(() => model.moveBy(this.doc, id, delta));
+    const ids = this.selectedRows();
+    this.change(() => model.moveRowsBy(this.doc, ids, delta));
   }
 
   toggleCollapse(id = this.selectedId) {
@@ -459,7 +622,7 @@ export class OutlineView {
     if (!row?.children.length) return;
     if (!row.collapsed && this.editing && this.editing.rowId !== row.id) {
       this.stopEditing(); // the row being edited might be about to disappear
-      this.selectedId = row.id;
+      this.selectOnly(row.id);
     }
     this.change(() => {
       row.collapsed = !row.collapsed;
@@ -467,18 +630,20 @@ export class OutlineView {
     });
   }
 
+  /** Deletes the selected rows (and their children). */
   deleteRow() {
-    const id = this.selectedId;
-    if (!id) return;
+    const ids = this.selectedRows();
+    if (!ids.length) return;
+    // Afterwards, select the row just above the first one deleted.
     const visible = model.visibleRows(this.doc);
-    const index = visible.findIndex((v) => v.row.id === id);
+    const index = visible.findIndex((v) => this.selection.has(v.row.id));
     const wasEditing = this.editing;
     this.stopEditing();
     this.change(() => {
-      model.removeRow(this.doc, id);
+      for (const id of ids) model.removeRow(this.doc, id);
       if (this.doc.rows.length === 0) this.doc.rows.push(model.newRow());
       const remaining = model.visibleRows(this.doc);
-      this.selectedId = (remaining[index - 1] ?? remaining[0]).row.id;
+      this.selectOnly((remaining[index - 1] ?? remaining[0]).row.id);
       return true;
     });
     if (wasEditing && this.selectedId) this.edit(this.selectedId, TOPIC);
@@ -689,10 +854,10 @@ export class OutlineView {
 
   private restore(snapshot: string) {
     this.doc = JSON.parse(snapshot);
-    if (!this.selectedId || !model.locate(this.doc, this.selectedId)) this.selectedId = this.doc.rows[0]?.id ?? null;
+    if (!this.selectedId || !model.locate(this.doc, this.selectedId)) this.selectOnly(this.doc.rows[0]?.id ?? null);
     this.onChange();
     this.render();
-    this.select(this.selectedId);
+    this.updateSelection(true);
   }
 }
 

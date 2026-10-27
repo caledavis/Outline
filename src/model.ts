@@ -10,6 +10,23 @@ export interface Column {
   width?: number | null;
 }
 
+/** A named look (text size, colour, weight…) that can be applied to rows. */
+export interface Style {
+  id: string;
+  name: string;
+  /** Text size in pixels, or null for the normal size. */
+  size?: number | null;
+  /** Text colour as "#rrggbb", or null for the normal colour. */
+  color?: string | null;
+  bold?: boolean;
+  italic?: boolean;
+  /** Highlight colour behind the text as "#rrggbb", or null for none. */
+  background?: string | null;
+}
+
+/** Styles get the shortcuts Mod+1 to Mod+9, so that's the most there can be. */
+export const MAX_STYLES = 9;
+
 export interface Row {
   /** Only used while the app is running; ids aren't saved to the file. */
   id: string;
@@ -18,12 +35,15 @@ export interface Row {
   /** Note contents as HTML paragraphs, or "" for no note. */
   note: string;
   collapsed: boolean;
+  /** The id of the style applied to this row, if any. */
+  style?: string | null;
   children: Row[];
 }
 
 export interface OutlineDoc {
   title: string;
   columns: Column[];
+  styles: Style[];
   rows: Row[];
 }
 
@@ -32,7 +52,17 @@ export function newRow(): Row {
 }
 
 export function newDoc(): OutlineDoc {
-  return { title: "", columns: [{ id: TOPIC, name: "Topic" }], rows: [newRow()] };
+  return { title: "", columns: [{ id: TOPIC, name: "Topic" }], styles: starterStyles(), rows: [newRow()] };
+}
+
+/** A few examples to start a new outline with. */
+function starterStyles(): Style[] {
+  return [
+    { id: "s1", name: "Heading", size: 18, bold: true },
+    { id: "s2", name: "Important", color: "#c2410c", bold: true },
+    { id: "s3", name: "Highlight", background: "#fff3bf" },
+    { id: "s4", name: "Muted", size: 12, color: "#8a8a8e", italic: true },
+  ];
 }
 
 /** Gives every row a fresh id, e.g. after loading a file. */
@@ -89,6 +119,22 @@ export function contains(ancestor: Row, id: string): boolean {
   return ancestor.children.some((child) => child.id === id || contains(child, id));
 }
 
+/**
+ * The given rows in document order, leaving out any whose ancestor is also
+ * given (it moves along with that ancestor anyway).
+ */
+export function topmost(doc: OutlineDoc, ids: Set<string>): string[] {
+  const result: string[] = [];
+  const visit = (rows: Row[]) => {
+    for (const row of rows) {
+      if (ids.has(row.id)) result.push(row.id);
+      else visit(row.children);
+    }
+  };
+  visit(doc.rows);
+  return result;
+}
+
 /** Inserts a row (a new empty one by default) after `id`, or at the end. */
 export function insertAfter(doc: OutlineDoc, id: string | null, row = newRow()): Row {
   const loc = id ? locate(doc, id) : null;
@@ -106,6 +152,29 @@ export function indent(doc: OutlineDoc, id: string): boolean {
   newParent.children.push(loc.row);
   newParent.collapsed = false;
   return true;
+}
+
+/**
+ * Indents several rows (from topmost()). A row isn't indented into another
+ * selected row, so a group of siblings moves in together.
+ */
+export function indentRows(doc: OutlineDoc, ids: string[]): boolean {
+  const selected = new Set(ids);
+  let changed = false;
+  for (const id of ids) {
+    const loc = locate(doc, id);
+    if (!loc || loc.index === 0 || selected.has(loc.siblings[loc.index - 1].id)) continue;
+    changed = indent(doc, id) || changed;
+  }
+  return changed;
+}
+
+/** Outdents several rows (from topmost()), keeping their order. */
+export function outdentRows(doc: OutlineDoc, ids: string[]): boolean {
+  let changed = false;
+  // Last first: each lands just after its old parent, so this keeps the order.
+  for (const id of [...ids].reverse()) changed = outdent(doc, id) || changed;
+  return changed;
 }
 
 /** Moves a row out of its parent, to just after the parent. */
@@ -126,6 +195,20 @@ export function moveBy(doc: OutlineDoc, id: string, delta: -1 | 1): boolean {
   if (target < 0 || target >= loc.siblings.length) return false;
   [loc.siblings[loc.index], loc.siblings[target]] = [loc.siblings[target], loc.siblings[loc.index]];
   return true;
+}
+
+/** Moves several rows (from topmost()) up or down past their neighbours, as a group. */
+export function moveRowsBy(doc: OutlineDoc, ids: string[], delta: -1 | 1): boolean {
+  const selected = new Set(ids);
+  let changed = false;
+  // Rows nearest the direction of travel go first, so the others can follow.
+  for (const id of delta < 0 ? ids : [...ids].reverse()) {
+    const loc = locate(doc, id);
+    const neighbour = loc?.siblings[loc.index + delta];
+    if (!neighbour || selected.has(neighbour.id)) continue;
+    changed = moveBy(doc, id, delta) || changed;
+  }
+  return changed;
 }
 
 /**
@@ -176,4 +259,33 @@ export function addColumn(doc: OutlineDoc): Column {
 export function removeColumn(doc: OutlineDoc, id: string) {
   doc.columns = doc.columns.filter((c) => c.id !== id);
   walk(doc.rows, (row) => delete row.cells[id]);
+}
+
+export function isColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+export function addStyle(doc: OutlineDoc): Style | null {
+  if (doc.styles.length >= MAX_STYLES) return null;
+  let n = doc.styles.length + 1;
+  while (doc.styles.some((s) => s.id === `s${n}`)) n++;
+  const style: Style = { id: `s${n}`, name: `Style ${doc.styles.length + 1}` };
+  doc.styles.push(style);
+  return style;
+}
+
+export function removeStyle(doc: OutlineDoc, id: string) {
+  doc.styles = doc.styles.filter((s) => s.id !== id);
+  walk(doc.rows, (row) => {
+    if (row.style === id) row.style = null;
+  });
+}
+
+/** Moves a style up or down the list, which changes its shortcut number. */
+export function moveStyle(doc: OutlineDoc, id: string, delta: -1 | 1): boolean {
+  const index = doc.styles.findIndex((s) => s.id === id);
+  const target = index + delta;
+  if (index < 0 || target < 0 || target >= doc.styles.length) return false;
+  [doc.styles[index], doc.styles[target]] = [doc.styles[target], doc.styles[index]];
+  return true;
 }

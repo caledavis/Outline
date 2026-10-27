@@ -1,0 +1,298 @@
+// The sidebar: an overview of the outline's top-level rows, and the list of
+// styles, where styles are applied to rows and edited.
+
+import { Bold, ChevronDown, ChevronUp, Italic, Pencil, Plus, RotateCcw, Trash2, icon } from "./icons";
+import * as model from "./model";
+import type { Style } from "./model";
+import { isMac, type OutlineView } from "./view";
+
+const MOD = isMac ? "⌘" : "Ctrl+";
+
+export class Sidebar {
+  private overview = el("ol", "overview");
+  private styles = el("ul", "styles");
+  private addStyleButton = el("button", "add-style");
+  /** The style whose settings are open for editing. */
+  private openStyleId: string | null = null;
+  /** Set when the style list needs redrawing but one of its fields has focus. */
+  private stylesStale = false;
+  /** The document before the style being edited was changed, for undo. */
+  private snapshot: string | null = null;
+
+  constructor(root: HTMLElement, private view: OutlineView) {
+    this.addStyleButton.append(icon(Plus, 14), "New style");
+    this.addStyleButton.addEventListener("click", () => this.addStyle());
+
+    // Two panes: the overview scrolls on its own, so styles stay put at the bottom.
+    root.append(
+      section("overview-pane", "Overview", this.overview),
+      section("styles-pane", "Styles", this.styles, this.addStyleButton),
+    );
+    // Redraw the styles once the user has finished with a field in them.
+    this.styles.addEventListener("focusout", (e) => {
+      if (this.stylesStale && !this.styles.contains(e.relatedTarget as Node | null)) this.renderStyles();
+    });
+    this.refresh();
+  }
+
+  /** Redraws everything (after the document changes). */
+  refresh() {
+    this.renderOverview();
+    if (this.styles.contains(document.activeElement)) this.stylesStale = true;
+    else this.renderStyles();
+  }
+
+  /** Highlights what applies to the selected rows (after the selection changes). */
+  updateSelection() {
+    const top = this.view.selectedId ? model.path(this.view.doc, this.view.selectedId)[0]?.id : null;
+    for (const item of this.overview.querySelectorAll<HTMLElement>("[data-id]")) {
+      item.classList.toggle("active", item.dataset.id === top);
+    }
+    const used = this.view.selectedStyles();
+    for (const item of this.styles.querySelectorAll<HTMLElement>("[data-style-id]")) {
+      item.classList.toggle("active", used.has(item.dataset.styleId || null));
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Overview
+  // -------------------------------------------------------------------------
+
+  private renderOverview() {
+    const items = this.view.doc.rows.map((row) => {
+      const button = el("button", "overview-item");
+      button.dataset.id = row.id;
+      if (row.style) button.dataset.style = row.style;
+      const text = this.view.topicText(row).trim();
+      button.textContent = text || "Untitled";
+      button.classList.toggle("untitled", !text);
+      button.title = text;
+      button.addEventListener("click", () => this.view.reveal(row.id));
+      const li = el("li");
+      li.append(button);
+      return li;
+    });
+    this.overview.replaceChildren(...items);
+    this.updateSelection();
+  }
+
+  // -------------------------------------------------------------------------
+  // Styles
+  // -------------------------------------------------------------------------
+
+  private renderStyles() {
+    this.stylesStale = false;
+    const styles = this.view.doc.styles;
+    const items = styles.map((style, i) => this.renderStyle(style, i));
+
+    // A "no style" entry, for removing styles with the mouse.
+    const none = el("li", "style-item");
+    const clear = el("button", "style-apply");
+    clear.dataset.styleId = "";
+    clear.title = "Remove the style from the selected rows";
+    clear.append(kbd(`${MOD}0`), text("style-name plain", "No style"));
+    clear.addEventListener("mousedown", (e) => e.preventDefault());
+    clear.addEventListener("click", () => this.view.applyStyle(null));
+    none.append(clear);
+
+    this.styles.replaceChildren(...items, none);
+    this.addStyleButton.disabled = styles.length >= model.MAX_STYLES;
+    this.addStyleButton.title = this.addStyleButton.disabled ? `Up to ${model.MAX_STYLES} styles` : "";
+    this.updateSelection();
+  }
+
+  private renderStyle(style: Style, index: number): HTMLElement {
+    const item = el("li", "style-item");
+    const open = style.id === this.openStyleId;
+    item.classList.toggle("open", open);
+
+    const apply = el("button", "style-apply");
+    apply.dataset.styleId = style.id;
+    apply.title = "Apply to the selected rows";
+    const name = text("style-name", style.name || "Untitled");
+    name.dataset.style = style.id;
+    apply.append(kbd(`${MOD}${index + 1}`), name);
+    // Keep the focus (and any text being edited) in the outline.
+    apply.addEventListener("mousedown", (e) => e.preventDefault());
+    apply.addEventListener("click", () => this.view.applyStyle(style.id));
+
+    const edit = iconButton(Pencil, open ? "Close settings" : "Edit style", () => {
+      this.openStyleId = open ? null : style.id;
+      this.renderStyles();
+    });
+    edit.classList.add("style-edit");
+    edit.classList.toggle("active", open);
+
+    item.append(apply, edit);
+    if (open) item.append(this.renderSettings(style, index, name));
+    return item;
+  }
+
+  /** The fields for changing a style. Changes show straight away in the outline. */
+  private renderSettings(style: Style, index: number, preview: HTMLElement): HTMLElement {
+    const settings = el("div", "style-settings");
+
+    // Typing previews the change; each finished change becomes one undo step.
+    const live = (update: () => void) => {
+      this.snapshot ??= this.view.snapshot();
+      update();
+      this.view.updateStyleSheet();
+    };
+    const done = () => {
+      if (this.snapshot) this.view.commit(this.snapshot);
+      this.snapshot = null;
+    };
+
+    const nameInput = el("input");
+    nameInput.type = "text";
+    nameInput.value = style.name;
+    nameInput.addEventListener("input", () =>
+      live(() => {
+        style.name = nameInput.value;
+        preview.textContent = style.name || "Untitled";
+      }),
+    );
+    nameInput.addEventListener("change", done);
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") nameInput.blur();
+    });
+
+    const sizeInput = el("input");
+    sizeInput.type = "number";
+    sizeInput.min = "6";
+    sizeInput.max = "96";
+    sizeInput.placeholder = "14";
+    sizeInput.value = style.size ? String(style.size) : "";
+    sizeInput.addEventListener("input", () =>
+      live(() => {
+        const size = Math.round(Number(sizeInput.value));
+        style.size = sizeInput.value && size >= 6 && size <= 96 ? size : null;
+      }),
+    );
+    sizeInput.addEventListener("change", done);
+
+    /** A colour picker with a button to go back to having no colour. */
+    const colorPicker = (key: "color" | "background", suggestion: string, noneLabel: string) => {
+      const input = el("input");
+      input.type = "color";
+      input.value = style[key] ?? suggestion;
+      input.classList.toggle("unset", !style[key]);
+      input.title = style[key] ?? `${noneLabel} (click to choose)`;
+      input.addEventListener("input", () =>
+        live(() => {
+          style[key] = input.value;
+          input.classList.remove("unset");
+          reset.hidden = false;
+        }),
+      );
+      input.addEventListener("change", done);
+
+      const reset = iconButton(RotateCcw, noneLabel, () => {
+        live(() => (style[key] = null));
+        done();
+        this.renderStyles();
+      });
+      reset.hidden = !style[key];
+
+      const wrapper = el("div", "color-field");
+      wrapper.append(input, reset);
+      return wrapper;
+    };
+
+    /** A button that switches bold or italic on and off. */
+    const toggle = (key: "bold" | "italic", node: Parameters<typeof icon>[0], label: string) => {
+      const button = iconButton(node, label, () => {
+        live(() => (style[key] = !style[key]));
+        done();
+        button.classList.toggle("active", !!style[key]);
+        button.setAttribute("aria-pressed", String(!!style[key]));
+      });
+      button.classList.toggle("active", !!style[key]);
+      button.setAttribute("aria-pressed", String(!!style[key]));
+      return button;
+    };
+
+    const up = iconButton(ChevronUp, "Move up (changes its shortcut)", () => this.moveStyle(style, -1));
+    up.disabled = index === 0;
+    const down = iconButton(ChevronDown, "Move down (changes its shortcut)", () => this.moveStyle(style, 1));
+    down.disabled = index === this.view.doc.styles.length - 1;
+    const remove = iconButton(Trash2, "Delete style", () => {
+      this.openStyleId = null;
+      this.view.change(() => (model.removeStyle(this.view.doc, style.id), true));
+      this.renderStyles();
+    });
+    remove.classList.add("danger");
+
+    const textField = el("div", "toggle-field");
+    textField.append(toggle("bold", Bold, "Bold"), toggle("italic", Italic, "Italic"));
+    const sizeField = el("div", "size-field");
+    sizeField.append(sizeInput, text("unit", "px"));
+    const actions = el("div", "style-actions");
+    actions.append(up, down, el("span", "spacer"), remove);
+
+    settings.append(
+      field("Name", nameInput),
+      field("Size", sizeField),
+      field("Text", textField),
+      field("Colour", colorPicker("color", "#1f5fbf", "Normal colour")),
+      field("Highlight", colorPicker("background", "#fff3bf", "No highlight")),
+      actions,
+    );
+    return settings;
+  }
+
+  private addStyle() {
+    let style: Style | null = null;
+    this.view.change(() => !!(style = model.addStyle(this.view.doc)));
+    if (!style) return;
+    this.openStyleId = (style as Style).id;
+    this.renderStyles();
+    this.styles.querySelector<HTMLInputElement>(".style-settings input")?.select();
+  }
+
+  private moveStyle(style: Style, delta: -1 | 1) {
+    this.view.change(() => model.moveStyle(this.view.doc, style.id, delta));
+    this.renderStyles();
+  }
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  return element;
+}
+
+function text(className: string, value: string): HTMLElement {
+  const span = el("span", className);
+  span.textContent = value;
+  return span;
+}
+
+function kbd(value: string): HTMLElement {
+  const k = el("kbd");
+  k.textContent = value;
+  return k;
+}
+
+function iconButton(node: Parameters<typeof icon>[0], label: string, onClick: () => void): HTMLButtonElement {
+  const button = el("button", "icon-button");
+  button.append(icon(node, 14));
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function field(label: string, input: HTMLElement): HTMLElement {
+  const wrapper = el("label", "field");
+  wrapper.append(text("label", label), input);
+  return wrapper;
+}
+
+function section(className: string, title: string, ...children: HTMLElement[]): HTMLElement {
+  const sectionEl = el("section", className);
+  const heading = el("h2");
+  heading.textContent = title;
+  sectionEl.append(heading, ...children);
+  return sectionEl;
+}

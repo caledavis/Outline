@@ -41,3 +41,10 @@ function clean(parent: Element) {
     }
   }
 }
+
+/** The text of some HTML with all formatting removed. */
+export function plainText(html: string): string {
+  if (!html.includes("<") && !html.includes("&")) return html;
+  // DOMParser builds an inert document, so nothing in the HTML can run or load.
+  return new DOMParser().parseFromString(html, "text/html").body.textContent ?? "";
+}

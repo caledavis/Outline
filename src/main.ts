@@ -6,11 +6,13 @@ import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
 import { insertIcons } from "./icons";
 import { assignIds, newDoc, type OutlineDoc } from "./model";
+import { Sidebar } from "./sidebar";
 import { OutlineView, isMac } from "./view";
 
 const FILTERS = [{ name: "Outline (OPML)", extensions: ["opml"] }];
 
 const view = new OutlineView(document.getElementById("outline")!);
+const sidebar = new Sidebar(document.getElementById("sidebar")!, view);
 let path: string | null = null;
 let dirty = false;
 
@@ -29,7 +31,9 @@ function setDirty(value: boolean) {
 
 view.onChange = () => {
   if (!dirty) setDirty(true);
+  sidebar.refresh();
 };
+view.onSelectionChange = () => sidebar.updateSelection();
 
 /** Asks before throwing away unsaved changes. Returns true if it's OK to continue. */
 async function confirmDiscard(): Promise<boolean> {
@@ -47,6 +51,7 @@ async function newFile() {
   if (!(await confirmDiscard())) return;
   path = null;
   view.load(newDoc());
+  sidebar.refresh();
   setDirty(false);
 }
 
@@ -59,6 +64,7 @@ async function openFile() {
     assignIds(doc.rows);
     path = chosen;
     view.load(doc);
+    sidebar.refresh();
     setDirty(false);
   } catch (error) {
     await message(String(error), { title: "Could not open file", kind: "error" });
@@ -127,10 +133,31 @@ async function editLink() {
 view.onLinkRequest = editLink;
 
 // ---------------------------------------------------------------------------
+// Sidebar
+// ---------------------------------------------------------------------------
+
+const SIDEBAR_KEY = "sidebarHidden";
+
+function setSidebarHidden(hidden: boolean) {
+  document.body.classList.toggle("sidebar-hidden", hidden);
+  document.querySelector('[data-action="sidebar"]')?.classList.toggle("active", !hidden);
+  try {
+    localStorage.setItem(SIDEBAR_KEY, String(hidden));
+  } catch {
+    // Remembering this is only a convenience.
+  }
+}
+
+function toggleSidebar() {
+  setSidebarHidden(!document.body.classList.contains("sidebar-hidden"));
+}
+
+// ---------------------------------------------------------------------------
 // Toolbar
 // ---------------------------------------------------------------------------
 
 const actions: Record<string, () => void> = {
+  sidebar: toggleSidebar,
   new: newFile,
   open: openFile,
   save: () => saveFile(),
@@ -161,6 +188,14 @@ view.onEditorChange = (editor: Editor | null) => {
 };
 view.onEditorChange(null);
 
+let sidebarHidden = false;
+try {
+  sidebarHidden = localStorage.getItem(SIDEBAR_KEY) === "true";
+} catch {
+  // Use the default.
+}
+setSidebarHidden(sidebarHidden);
+
 // ---------------------------------------------------------------------------
 // Keyboard
 // ---------------------------------------------------------------------------
@@ -177,6 +212,11 @@ window.addEventListener(
       if (key === "n") newFile();
       else if (key === "o") openFile();
       else saveFile(e.shiftKey);
+      return;
+    }
+    if (mod && e.key === "\\") {
+      e.preventDefault();
+      toggleSidebar();
       return;
     }
     const target = e.target as HTMLElement;

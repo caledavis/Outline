@@ -5,22 +5,26 @@
     <ol:column id="topic" name="Topic"/>
     <ol:column id="c2" name="Source" width="180"/>
     <ol:column id="c3" name="Status" width="120"/>
+    <ol:style id="s1" name="Heading" size="18" bold="true"/>
+    <ol:style id="s2" name="Important" color="#c2410c" bold="true"/>
+    <ol:style id="s3" name="Highlight" background="#fff3bf"/>
+    <ol:style id="s4" name="Muted" size="12" color="#8a8a8e" italic="true"/>
   </head>
   <body>
-    <outline text="&lt;strong&gt;1. Introduction&lt;/strong&gt;" ol:col-c3="Drafting">
+    <outline text="1. Introduction" ol:col-c3="Drafting" ol:style="s1">
       <outline text="Research question" _note="&lt;p&gt;How does &lt;em&gt;X&lt;/em&gt; affect &lt;em&gt;Y&lt;/em&gt; in small communities?&lt;/p&gt;"/>
-      <outline text="Why it matters" ol:col-c2="Smith 2021, p. 12"/>
+      <outline text="Why it matters" ol:col-c2="Smith 2021, p. 12" ol:style="s3"/>
     </outline>
-    <outline text="&lt;strong&gt;2. Literature review&lt;/strong&gt;" ol:col-c3="Reading">
+    <outline text="2. Literature review" ol:col-c3="Reading" ol:style="s1">
       <outline text="Early studies" ol:col-c2="Jones 1998">
-        <outline text="Key finding: &lt;u&gt;sample sizes were small&lt;/u&gt;"/>
+        <outline text="Key finding: &lt;u&gt;sample sizes were small&lt;/u&gt;" ol:style="s2"/>
         <outline text="Critique by &lt;a href=&quot;https://example.com&quot;&gt;Lee&lt;/a&gt;" ol:col-c2="Lee 2004"/>
       </outline>
       <outline text="Recent work" ol:collapsed="true">
         <outline text="Meta-analysis" ol:col-c2="Patel 2023"/>
-        <outline text="&lt;s&gt;Survey of practitioners&lt;/s&gt; (out of scope)"/>
+        <outline text="&lt;s&gt;Survey of practitioners&lt;/s&gt; (out of scope)" ol:style="s4"/>
       </outline>
     </outline>
-    <outline text="&lt;strong&gt;3. Method&lt;/strong&gt;" ol:col-c3="Not started"/>
+    <outline text="3. Method" ol:col-c3="Not started" ol:style="s1"/>
   </body>
 </opml>
