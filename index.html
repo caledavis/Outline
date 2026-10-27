@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Outline</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+
+  <body>
+    <header class="toolbar">
+      <div class="group">
+        <button data-action="new" title="New (Mod+N)">New</button>
+        <button data-action="open" title="Open… (Mod+O)">Open</button>
+        <button data-action="save" title="Save (Mod+S)">Save</button>
+      </div>
+      <div class="group">
+        <button data-action="bold" data-mark="bold" title="Bold (Mod+B)"><b>B</b></button>
+        <button data-action="italic" data-mark="italic" title="Italic (Mod+I)"><i>I</i></button>
+        <button data-action="underline" data-mark="underline" title="Underline (Mod+U)"><u>U</u></button>
+        <button data-action="strike" data-mark="strike" title="Strikethrough"><s>S</s></button>
+        <button data-action="link" data-mark="link" title="Link (Mod+K)">Link</button>
+      </div>
+      <div class="group">
+        <button data-action="addRow" title="New row (Enter)">+ Row</button>
+        <button data-action="outdent" title="Outdent (Shift+Tab)">⇤</button>
+        <button data-action="indent" title="Indent (Tab)">⇥</button>
+        <button data-action="moveUp" title="Move up (Mod+Shift+↑)">↑</button>
+        <button data-action="moveDown" title="Move down (Mod+Shift+↓)">↓</button>
+        <button data-action="note" title="Add or edit note (Mod+')">Note</button>
+        <button data-action="deleteRow" title="Delete row (Mod+Backspace)">Delete</button>
+      </div>
+    </header>
+
+    <main id="outline"></main>
+
+    <dialog id="prompt">
+      <form method="dialog">
+        <label for="prompt-input" id="prompt-label"></label>
+        <input id="prompt-input" type="text" autocomplete="off" spellcheck="false" />
+        <menu>
+          <button value="cancel" formnovalidate>Cancel</button>
+          <button value="ok" class="primary">OK</button>
+        </menu>
+      </form>
+    </dialog>
+  </body>
+</html>
