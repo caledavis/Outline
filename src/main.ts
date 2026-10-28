@@ -35,6 +35,10 @@ interface Tab {
 }
 
 const tabBar = document.getElementById("tabs")!;
+const documentName = document.getElementById("document-name")!;
+
+// Lets the stylesheet leave room for the Mac's window buttons in the toolbar.
+document.documentElement.dataset.platform = isMac ? "mac" : "other";
 const tabs: Tab[] = [];
 let active: Tab;
 
@@ -195,8 +199,11 @@ tabBar.addEventListener("drop", (e) => {
 // Files
 // ---------------------------------------------------------------------------
 
+/** Names the active outline in the window's title and, as macOS hides that, the toolbar. */
 function updateTitle() {
   getCurrentWindow().setTitle(`${active.dirty ? "• " : ""}${fileName(active.path)} — Outline`);
+  documentName.textContent = fileName(active.path);
+  documentName.title = active.path ?? "";
 }
 
 function setDirty(value: boolean) {

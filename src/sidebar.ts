@@ -383,7 +383,7 @@ function field(label: string, input: HTMLElement): HTMLElement {
 }
 
 function section(className: string, title: string, ...children: HTMLElement[]): HTMLElement {
-  const sectionEl = el("section", className);
+  const sectionEl = el("section", `${className} panel`);
   const heading = el("h2");
   heading.textContent = title;
   sectionEl.append(heading, ...children);

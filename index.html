@@ -9,49 +9,67 @@
   </head>
 
   <body>
-    <header class="toolbar">
-      <div class="group">
-        <button data-action="sidebar" data-icon="sidebar" title="Show or hide the sidebar (Mod+\)" aria-label="Sidebar"></button>
+    <!-- On macOS the title bar is hidden and this toolbar takes its place (see tauri.conf.json). -->
+    <header class="toolbar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <!-- The app icon's rings, drawn in the text colour. -->
+        <svg class="logo" viewBox="180 150 664 720" aria-hidden="true">
+          <mask id="logo-mask">
+            <ellipse cx="511" cy="510" rx="325" ry="353" fill="#fff" />
+            <ellipse cx="503" cy="510" rx="234" ry="253" fill="#000" />
+            <ellipse cx="512" cy="510" rx="185" ry="213" fill="#fff" />
+            <ellipse cx="525" cy="510" rx="93" ry="107" fill="#000" />
+          </mask>
+          <rect x="180" y="150" width="664" height="720" fill="currentColor" mask="url(#logo-mask)" />
+        </svg>
+        <span id="document-name" class="document-name" data-tauri-drag-region>Untitled</span>
       </div>
-      <div class="divider"></div>
-      <div class="group">
-        <button data-action="new" data-icon="file-plus" title="New (Mod+N)" aria-label="New"></button>
-        <button data-action="open" data-icon="folder-open" title="Open… (Mod+O)" aria-label="Open"></button>
-        <button data-action="save" data-icon="save" title="Save (Mod+S)" aria-label="Save"></button>
+      <div class="toolbar-pills">
+        <div class="pill">
+          <button data-action="sidebar" data-icon="sidebar" title="Show or hide the sidebar (Mod+\)" aria-label="Sidebar"></button>
+        </div>
+        <div class="pill">
+          <button data-action="new" data-icon="file-plus" title="New (Mod+N)" aria-label="New"></button>
+          <button data-action="open" data-icon="folder-open" title="Open… (Mod+O)" aria-label="Open"></button>
+          <button data-action="save" data-icon="save" title="Save (Mod+S)" aria-label="Save"></button>
+        </div>
+        <div class="pill">
+          <button data-action="bold" data-mark="bold" data-icon="bold" title="Bold (Mod+B)" aria-label="Bold"></button>
+          <button data-action="italic" data-mark="italic" data-icon="italic" title="Italic (Mod+I)" aria-label="Italic"></button>
+          <button data-action="underline" data-mark="underline" data-icon="underline" title="Underline (Mod+U)" aria-label="Underline"></button>
+          <button data-action="strike" data-mark="strike" data-icon="strikethrough" title="Strikethrough" aria-label="Strikethrough"></button>
+          <button data-action="link" data-mark="link" data-icon="link" title="Link (Mod+K)" aria-label="Link"></button>
+        </div>
+        <div class="pill">
+          <button data-action="note" data-icon="note" title="Add or edit note (Mod+')" aria-label="Note"></button>
+          <button data-action="attach" data-icon="attach" title="Attach a file or web link" aria-label="Attach"></button>
+          <button data-action="cite" data-icon="cite" title="Link to an item in Zotero" aria-label="Zotero"></button>
+        </div>
+        <div class="pill">
+          <button data-action="smaller" data-icon="smaller" title="Smaller text (Mod+−)" aria-label="Smaller text"></button>
+          <button data-action="reset-size" data-icon="reset-size" title="Reset text size" aria-label="Reset text size"></button>
+          <button data-action="larger" data-icon="larger" title="Larger text (Mod++)" aria-label="Larger text"></button>
+        </div>
       </div>
-      <div class="divider"></div>
-      <div class="group">
-        <button data-action="bold" data-mark="bold" data-icon="bold" title="Bold (Mod+B)" aria-label="Bold"></button>
-        <button data-action="italic" data-mark="italic" data-icon="italic" title="Italic (Mod+I)" aria-label="Italic"></button>
-        <button data-action="underline" data-mark="underline" data-icon="underline" title="Underline (Mod+U)" aria-label="Underline"></button>
-        <button data-action="strike" data-mark="strike" data-icon="strikethrough" title="Strikethrough" aria-label="Strikethrough"></button>
-        <button data-action="link" data-mark="link" data-icon="link" title="Link (Mod+K)" aria-label="Link"></button>
+      <div class="toolbar-end" data-tauri-drag-region>
+        <label class="search">
+          <span data-icon="search"></span>
+          <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="pill">
+          <button data-action="filter" data-icon="filter" title="Filter" aria-label="Filter"></button>
+        </div>
       </div>
-      <div class="divider"></div>
-      <div class="group">
-        <button data-action="note" data-icon="note" title="Add or edit note (Mod+')" aria-label="Note"></button>
-        <button data-action="attach" data-icon="attach" title="Attach a file or web link" aria-label="Attach"></button>
-        <button data-action="cite" data-icon="cite" title="Link to an item in Zotero" aria-label="Zotero"></button>
-      </div>
-      <div class="divider"></div>
-      <div class="group">
-        <button data-action="smaller" data-icon="smaller" title="Smaller text (Mod+−)" aria-label="Smaller text"></button>
-        <button data-action="reset-size" data-icon="reset-size" title="Reset text size" aria-label="Reset text size"></button>
-        <button data-action="larger" data-icon="larger" title="Larger text (Mod++)" aria-label="Larger text"></button>
-      </div>
-      <div class="toolbar-spacer"></div>
-      <label class="search">
-        <span data-icon="search"></span>
-        <input id="search" type="search" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false" />
-      </label>
-      <button data-action="filter" data-icon="filter" title="Filter" aria-label="Filter"></button>
     </header>
-    <nav id="tabs" class="tabs" aria-label="Open outlines"></nav>
-    <div id="filter-bar" class="filter-bar" hidden></div>
 
     <div class="workspace">
       <aside id="sidebar"></aside>
-      <main id="outline"></main>
+      <!-- The open outlines: their tabs, any filters, then the outline itself. -->
+      <section class="document panel">
+        <nav id="tabs" class="tabs" aria-label="Open outlines"></nav>
+        <div id="filter-bar" class="filter-bar" hidden></div>
+        <main id="outline"></main>
+      </section>
     </div>
 
     <dialog id="prompt">
