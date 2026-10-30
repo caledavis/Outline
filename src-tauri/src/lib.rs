@@ -3,6 +3,9 @@ mod zotero;
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
+
+use tauri::{Emitter, Manager};
 
 use opml::Document;
 
@@ -29,6 +32,26 @@ async fn zotero_notes(uri: String) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || zotero::notes(&uri))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// Outlines the system asked Outline to open (by double-clicking one, say)
+/// that the interface hasn't taken yet. They can arrive before the page has
+/// loaded, so they wait here rather than being sent straight to it.
+#[derive(Default)]
+struct OpenedFiles(Mutex<Vec<PathBuf>>);
+
+#[tauri::command]
+fn take_opened_files(opened: tauri::State<OpenedFiles>) -> Vec<PathBuf> {
+    std::mem::take(&mut *opened.0.lock().unwrap())
+}
+
+/// Queues outlines to open and tells the interface to take them.
+fn open_files(app: &tauri::AppHandle, paths: Vec<PathBuf>) {
+    if paths.is_empty() {
+        return;
+    }
+    app.state::<OpenedFiles>().0.lock().unwrap().extend(paths);
+    let _ = app.emit("files-opened", ());
 }
 
 #[tauri::command]
@@ -108,17 +131,33 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .setup(|_app| {
+        .manage(OpenedFiles::default())
+        .setup(|app| {
             #[cfg(target_os = "linux")]
-            {
-                use tauri::Manager;
-                if let Some(window) = _app.get_webview_window("main") {
-                    enable_spell_checking_in(&window);
-                }
+            if let Some(window) = app.get_webview_window("main") {
+                enable_spell_checking_in(&window);
             }
+            // Windows and Linux pass the files to open as arguments.
+            let paths = std::env::args_os().skip(1).map(PathBuf::from).filter(|p| p.is_file());
+            open_files(app.handle(), paths.collect());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![open_outline, save_outline, zotero_search, zotero_notes])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .invoke_handler(tauri::generate_handler![
+            open_outline,
+            save_outline,
+            take_opened_files,
+            zotero_search,
+            zotero_notes
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            // macOS sends the files to open as an event instead, both at
+            // launch and while Outline is already running.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = _event {
+                let paths = urls.into_iter().filter_map(|url| url.to_file_path().ok());
+                open_files(_app, paths.collect());
+            }
+        });
 }

@@ -1,6 +1,7 @@
 // Wires the outline view to the window: toolbar, file handling, shortcuts.
 
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
@@ -247,8 +248,12 @@ function newFile() {
 
 async function openFile() {
   const chosen = await open({ multiple: true, directory: false, filters: FILTERS });
-  if (!chosen?.length) return;
-  for (const path of chosen) {
+  if (chosen?.length) await openPaths(chosen);
+}
+
+/** Opens outlines in tabs, or switches to them if they're already open. */
+async function openPaths(paths: string[]) {
+  for (const path of paths) {
     const already = tabs.find((tab) => tab.path === path);
     if (already) {
       switchTo(already);
@@ -557,3 +562,12 @@ window.addEventListener(
 
 addTab(view.doc, null);
 view.edit(view.selectedId!, "topic");
+
+// Outlines opened from outside the app, e.g. by double-clicking one in the
+// Finder. Rust holds on to them until they're taken, so none are missed
+// while the page is still loading.
+async function openSystemFiles() {
+  const paths = await invoke<string[]>("take_opened_files");
+  if (paths.length) await openPaths(paths);
+}
+listen("files-opened", openSystemFiles).then(openSystemFiles);

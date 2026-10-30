@@ -36,6 +36,14 @@
       "../LICENSE": "LICENSE",
       "../THIRD-PARTY-LICENSES.txt": "THIRD-PARTY-LICENSES.txt"
     },
+    "fileAssociations": [
+      {
+        "ext": ["opml"],
+        "name": "Outline (OPML)",
+        "mimeType": "text/x-opml",
+        "role": "Editor"
+      }
+    ],
     "macOS": {
       "signingIdentity": "-"
     },
