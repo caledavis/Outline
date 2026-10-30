@@ -45,7 +45,10 @@
       }
     ],
     "macOS": {
-      "signingIdentity": "-"
+      "signingIdentity": "-",
+      "files": {
+        "Resources/opml.icns": "icons/opml.icns"
+      }
     },
     "icon": [
       "icons/32x32.png",

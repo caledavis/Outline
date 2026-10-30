@@ -197,8 +197,13 @@ npx tauri icon icon-sources/app_icon.png        # Windows and Linux icons
 # macOS: first shrink the artwork to Apple's icon grid (824px with a 100px margin)
 swift scripts/pad-mac-icon.swift icon-sources/mac_icon.png /tmp/mac_icon_padded.png
 npx tauri icon /tmp/mac_icon_padded.png -o /tmp/mac-icons && cp /tmp/mac-icons/icon.icns src-tauri/icons/
+# macOS: the Finder icon for .opml files (see src-tauri/Info.plist)
+sips -z 1024 1024 icon-sources/opml_icon.png --out /tmp/opml_icon.png
+npx tauri icon /tmp/opml_icon.png -o /tmp/opml-icons && cp /tmp/opml-icons/icon.icns src-tauri/icons/opml.icns
 rm -rf src-tauri/icons/android src-tauri/icons/ios   # not needed for a desktop app
 ```
+
+The logo in the toolbar (`index.html`) is `icon-sources/logo.svg`, drawn in the text colour.
 
 ## File format
 

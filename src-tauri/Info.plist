@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the Info.plist Tauri generates. It repeats the OPML file
+     association from tauri.conf.json, which can't set an icon, and adds the
+     Finder icon for OPML files (opml.icns, copied in by bundle.macOS.files). -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Outline (OPML)</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>opml</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Default</string>
+			<key>CFBundleTypeIconFile</key>
+			<string>opml.icns</string>
+		</dict>
+	</array>
+</dict>
+</plist>
