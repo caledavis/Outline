@@ -478,6 +478,19 @@ for (const button of toolbar.querySelectorAll<HTMLButtonElement>("button")) {
   button.addEventListener("click", () => actions[button.dataset.action!]?.(button));
 }
 
+// When the window is too narrow for every button group, they scroll sideways
+// and a chevron shows on each side that has buttons out of sight.
+const toolbarPills = document.getElementById("toolbar-pills")!;
+const scrollHintLeft = document.getElementById("scroll-hint-left")!;
+const scrollHintRight = document.getElementById("scroll-hint-right")!;
+function updateScrollHints() {
+  const { scrollLeft, scrollWidth, clientWidth } = toolbarPills;
+  scrollHintLeft.classList.toggle("visible", scrollLeft > 1);
+  scrollHintRight.classList.toggle("visible", scrollLeft < scrollWidth - clientWidth - 1);
+}
+toolbarPills.addEventListener("scroll", updateScrollHints, { passive: true });
+new ResizeObserver(updateScrollHints).observe(toolbarPills);
+
 view.onEditorChange = (editor: Editor | null) => {
   for (const button of markButtons) {
     button.disabled = !editor;

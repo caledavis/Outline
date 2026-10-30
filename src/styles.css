@@ -92,12 +92,12 @@ button {
 
 /* Toolbar ---------------------------------------------------------------- */
 
-/* The outline's name on the left, the button groups centred, search on the right. */
+/* The outline's name pinned on the left and search pinned on the right, with
+   the button groups centred between them. When the window is too narrow, the
+   button groups scroll sideways rather than squeezing the ends. */
 .toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
-  gap: 12px;
   flex: none;
   height: 52px;
   padding: 0 12px;
@@ -112,8 +112,9 @@ button {
 .brand {
   display: flex;
   align-items: center;
+  flex: none;
   gap: 8px;
-  min-width: 0;
+  margin-right: 12px;
   padding: 0 6px;
   color: var(--fg);
 }
@@ -126,6 +127,7 @@ button {
 }
 
 .document-name {
+  max-width: 240px;
   overflow: hidden;
   font-size: 13px;
   font-weight: 600;
@@ -133,14 +135,47 @@ button {
   text-overflow: ellipsis;
 }
 
+/* The button groups, with a gutter either side for the scroll chevrons. */
+.toolbar-middle {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+}
+
+/* Shown when buttons are scrolled out of sight on that side. The gutters keep
+   their room when hidden, so a chevron never covers a button. */
+.scroll-hint {
+  display: flex;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  color: var(--muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.scroll-hint.visible { opacity: 1; }
+
 /* Scrolls sideways if the window is too narrow for every group. */
 .toolbar-pills {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex: 1 1 auto;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+/* Centred while the groups fit. Once they don't, the auto margins drop to
+   zero, so the groups start at the left edge and scroll from there. */
+.toolbar-pills-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto;
 }
 
 .toolbar-pills::-webkit-scrollbar { display: none; }
@@ -148,9 +183,8 @@ button {
 .toolbar-end {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  flex: none;
   gap: 10px;
-  min-width: 0;
 }
 
 /* A group of buttons in a rounded chip, with thin dividers between them. */

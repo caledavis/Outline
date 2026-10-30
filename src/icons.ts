@@ -2,7 +2,8 @@
 // means only the ones we use end up in the app.
 
 import {
-  Bold, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, FilePlus, FileText,
+  Bold, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight,
+  FilePlus, FileText,
   FolderOpen, Globe, GripVertical, Hash, Italic, Link, List, ListFilter, Minus, PanelLeft, Paperclip,
   Pencil, Plus, RotateCcw, Save, Search, SquareCheck, StickyNote, Strikethrough, Tag, Trash2, Type,
   Underline, X, createElement,
@@ -30,6 +31,8 @@ const BY_NAME: Record<string, IconNode> = {
   smaller: Minus,
   larger: Plus,
   "reset-size": RotateCcw,
+  "scroll-left": ChevronsLeft,
+  "scroll-right": ChevronsRight,
 };
 
 export {
