@@ -24,7 +24,7 @@
   --menu-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
   --dialog-shadow: 0 10px 30px -5px rgb(0 0 0 / 0.1);
   color-scheme: light dark;
-  /* The interface font, and the serif used for the outline's own text. */
+  /* The interface font (also the outline's normal font), and the serif a style can choose. */
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   --serif: ui-serif, "New York", Georgia, Cambria, "Times New Roman", serif;
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -640,7 +640,7 @@ body.sidebar-hidden #sidebar { display: none; }
   text-overflow: ellipsis;
   /* Previews the style, without letting big sizes swamp the sidebar. */
   font-size: min(var(--style-size, 1.08em), 22px);
-  font-family: var(--style-font, var(--serif));
+  font-family: var(--style-font, var(--sans));
   font-weight: var(--style-weight, normal);
   font-style: var(--style-slant, normal);
   color: var(--style-color, var(--fg));
@@ -994,8 +994,8 @@ body.resizing {
 
 .content p { margin: 0; }
 
-/* What the user writes (cells and notes) is set in serif; controls stay in the interface font. */
-#outline .content { font-family: var(--style-font, var(--serif)); }
+/* What the user writes (cells and notes) follows its style's font; controls stay in the interface font. */
+#outline .content { font-family: var(--style-font, var(--sans)); }
 #outline .badge-list { font-family: var(--sans); }
 
 /* A row's style (see updateStyleSheet in view.ts) sets these variables. */

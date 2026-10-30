@@ -63,7 +63,7 @@ export interface Style {
   italic?: boolean;
   /** Highlight colour behind the text as "#rrggbb", or null for none. */
   background?: string | null;
-  /** The style's font, or null for the normal serif. */
+  /** The style's font, or null for the normal sans. */
   font?: "serif" | "sans" | "mono" | null;
 }
 

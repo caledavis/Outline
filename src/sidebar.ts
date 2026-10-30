@@ -299,14 +299,14 @@ export class Sidebar {
     });
     remove.classList.add("danger");
 
-    // The normal font is serif, so choosing Serif clears the setting.
-    const fonts: [string, Style["font"]][] = [["Serif", null], ["Sans", "sans"], ["Mono", "mono"]];
+    // The normal font is sans, so choosing Sans clears the setting.
+    const fonts: [string, Style["font"]][] = [["Serif", "serif"], ["Sans", null], ["Mono", "mono"]];
     const fontField = el("div", "segmented");
     for (const [label, font] of fonts) {
       const option = el("button");
       option.textContent = label;
-      option.style.fontFamily = `var(--${font ?? "serif"})`;
-      option.classList.toggle("active", (style.font === "serif" ? null : (style.font ?? null)) === font);
+      option.style.fontFamily = `var(--${font ?? "sans"})`;
+      option.classList.toggle("active", (style.font === "sans" ? null : (style.font ?? null)) === font);
       option.addEventListener("click", () => {
         live(() => (style.font = font));
         done();
