@@ -1,4 +1,5 @@
 mod opml;
+mod updater;
 mod zotero;
 
 use std::fs;
@@ -92,10 +93,15 @@ fn enable_spell_checking_in(webview: &tauri::WebviewWindow) {
 
 /// The standard macOS menu without "Close Window": its ⌘W would close the
 /// whole window, and in Outline ⌘W closes the current tab (see main.ts).
+/// "Check for Updates…" goes under About, where Mac apps put it.
 #[cfg(target_os = "macos")]
 fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{Menu, MenuItemKind};
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
     let menu = Menu::default(app)?;
+    if let Some(MenuItemKind::Submenu(app_submenu)) = menu.items()?.first() {
+        let check = MenuItem::with_id(app, CHECK_FOR_UPDATES, "Check for Updates…", true, None::<&str>)?;
+        app_submenu.insert(&check, 1)?;
+    }
     for item in menu.items()? {
         let MenuItemKind::Submenu(submenu) = item else { continue };
         for entry in submenu.items()? {
@@ -119,6 +125,10 @@ fn app_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wr
     Ok(menu)
 }
 
+/// The menu item that runs Check for Updates… (see updater.rs).
+#[cfg(target_os = "macos")]
+const CHECK_FOR_UPDATES: &str = "check-for-updates";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "macos")]
@@ -126,17 +136,30 @@ pub fn run() {
 
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(app_menu);
+    let builder = builder.menu(app_menu).on_menu_event(|app, event| {
+        if event.id() == CHECK_FOR_UPDATES {
+            updater::check_manually(app);
+        }
+    });
 
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(OpenedFiles::default())
         .setup(|app| {
-            #[cfg(target_os = "linux")]
             if let Some(window) = app.get_webview_window("main") {
+                #[cfg(target_os = "linux")]
                 enable_spell_checking_in(&window);
+                // Closing the main window quits Outline, update window and all.
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Destroyed = event {
+                        updater::on_main_destroyed(&handle);
+                    }
+                });
             }
+            updater::start(app.handle());
             // Windows and Linux pass the files to open as arguments.
             let paths = std::env::args_os().skip(1).map(PathBuf::from).filter(|p| p.is_file());
             open_files(app.handle(), paths.collect());
@@ -147,11 +170,25 @@ pub fn run() {
             save_outline,
             take_opened_files,
             zotero_search,
-            zotero_notes
+            zotero_notes,
+            updater::get_update_badge,
+            updater::check_for_updates,
+            updater::update_window_state,
+            updater::update_install,
+            updater::update_relaunch,
+            updater::update_install_cancelled,
+            updater::update_window_fit,
+            updater::update_skip,
+            updater::update_dismiss
         ])
-        .build(tauri::generate_context!())
+        .build(updater::with_endpoint_override(tauri::generate_context!()))
         .expect("error while building tauri application")
         .run(|_app, _event| {
+            // A downloaded update the user didn't install yet installs as
+            // Outline quits.
+            if let tauri::RunEvent::Exit = _event {
+                updater::install_pending_on_quit();
+            }
             // macOS sends the files to open as an event instead, both at
             // launch and while Outline is already running.
             #[cfg(target_os = "macos")]

@@ -20,7 +20,10 @@
         "dragDropEnabled": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "trafficLightPosition": { "x": 20, "y": 26 }
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 29
+        }
       }
     ],
     "security": {
@@ -38,7 +41,9 @@
     },
     "fileAssociations": [
       {
-        "ext": ["opml"],
+        "ext": [
+          "opml"
+        ],
         "name": "Outline (OPML)",
         "mimeType": "text/x-opml",
         "role": "Editor"
@@ -56,6 +61,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/caledavis/Outline/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY4QjhDMjBDRTVFRTQyODAKUldTQVF1N2xETUs0YVBZd0N2ejVLVUxQQnpyL21ad3lYd2ovSjVJODRlaXRGcDlneVV3b3BwY0UK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

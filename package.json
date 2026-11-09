@@ -9,7 +9,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "licenses": "node scripts/build-third-party-licenses.mjs > THIRD-PARTY-LICENSES.txt"
+    "licenses": "node scripts/build-third-party-licenses.mjs > THIRD-PARTY-LICENSES.txt",
+    "release:finish": "node scripts/release.mjs finish"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -17,7 +18,8 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tiptap/core": "^3.32.0",
     "@tiptap/starter-kit": "^3.32.0",
-    "lucide": "^1.62.0"
+    "lucide": "^1.62.0",
+    "marked": "^15.0.12"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

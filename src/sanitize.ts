@@ -19,7 +19,19 @@ export function sanitize(html: string): string {
   return body.innerHTML;
 }
 
-function clean(parent: Element) {
+/** Release notes (see update.ts) may also have headings, lists and quotes. */
+const NOTES_ALLOWED: Record<string, string[]> = {
+  ...ALLOWED,
+  H1: [], H2: [], H3: [], H4: [], UL: [], OL: [], LI: [], BLOCKQUOTE: [], PRE: [], HR: [],
+};
+
+export function sanitizeNotes(html: string): string {
+  const body = new DOMParser().parseFromString(html, "text/html").body;
+  clean(body, NOTES_ALLOWED);
+  return body.innerHTML;
+}
+
+function clean(parent: Element, allowed = ALLOWED) {
   for (const node of [...parent.childNodes]) {
     if (node.nodeType === Node.TEXT_NODE) continue;
     if (node.nodeType !== Node.ELEMENT_NODE) {
@@ -28,14 +40,14 @@ function clean(parent: Element) {
     }
     const el = node as Element;
     const tag = el.tagName.toUpperCase();
-    clean(el);
+    clean(el, allowed);
     if (DROP.has(tag)) {
       el.remove();
-    } else if (!(tag in ALLOWED)) {
+    } else if (!(tag in allowed)) {
       el.replaceWith(...el.childNodes);
     } else {
       for (const attr of [...el.attributes]) {
-        const keep = ALLOWED[tag].includes(attr.name) && (attr.name !== "href" || SAFE_LINK.test(attr.value));
+        const keep = allowed[tag].includes(attr.name) && (attr.name !== "href" || SAFE_LINK.test(attr.value));
         if (!keep) el.removeAttribute(attr.name);
       }
     }
