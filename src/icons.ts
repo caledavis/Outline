@@ -2,43 +2,56 @@
 // means only the ones we use end up in the app.
 
 import {
-  Bold, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight,
-  FilePlus, FileText,
-  FolderOpen, Globe, GripVertical, Hash, Italic, Link, List, ListFilter, Minus, PanelLeft, Paperclip,
-  Pencil, Plus, RotateCcw, Save, Search, SquareCheck, StickyNote, Strikethrough, Tag, Trash2, Type,
-  Underline, X, createElement,
+  AArrowDown, AArrowUp, Bold, BookOpen, Bug, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsLeft,
+  ChevronsRight, CircleArrowDown, FilePenLine, FilePlus, FileText, FolderOpen, Globe, GripVertical, Hash, Italic, Link,
+  List, ListFilter, PanelLeft, Paperclip, Pencil, Plus, RotateCcw, Save, Scale, Search, SquareCheck, StickyNote,
+  Strikethrough, Tag, Tags, Trash2, Type, Underline, X, createElement,
 } from "lucide";
 
 type IconNode = Parameters<typeof createElement>[0];
 
 /** Icons that can be named in HTML with a `data-icon` attribute. */
 const BY_NAME: Record<string, IconNode> = {
-  "file-plus": FilePlus,
-  "folder-open": FolderOpen,
-  save: Save,
-  bold: Bold,
-  italic: Italic,
-  underline: Underline,
-  strikethrough: Strikethrough,
-  link: Link,
-  note: StickyNote,
-  sidebar: PanelLeft,
-  tag: Tag,
-  attach: Paperclip,
-  cite: BookOpen,
   search: Search,
   filter: ListFilter,
-  smaller: Minus,
-  larger: Plus,
-  "reset-size": RotateCcw,
-  "scroll-left": ChevronsLeft,
-  "scroll-right": ChevronsRight,
 };
 
 export {
-  Bold, BookOpen, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, FileText, Globe,
-  GripVertical, Hash, Italic, List, ListFilter, Paperclip, Pencil, Plus, RotateCcw, SquareCheck, Tag, Trash2, Type, X,
+  AArrowDown, AArrowUp, Bold, BookOpen, Bug, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp,
+  ChevronsLeft, ChevronsRight, CircleArrowDown, FilePenLine, FilePlus, FileText, FolderOpen, Globe, Link, PanelLeft,
+  Save, Scale, StickyNote, Strikethrough, Underline,
+  GripVertical, Hash, Italic, List, ListFilter, Paperclip, Pencil, Plus, RotateCcw, SquareCheck, Tag, Tags, Trash2, Type, X,
 };
+
+/** The `d` of each of an icon's paths, in order. */
+const paths = (node: IconNode) => node.map(([, attrs]) => String(attrs.d));
+
+const [saveBody, saveLabel, saveShutter] = paths(Save);
+/** Save, for the ribbon's palette: the body's tint first and its ink outline
+ *  last, so the outline is drawn over the blue label and the tint. */
+export const SaveTinted: IconNode = [
+  ["path", { d: saveBody, class: "rb-tint", stroke: "none" }],
+  ["path", { d: saveLabel, class: "rb-accent" }],
+  ["path", { d: saveShutter }],
+  ["path", { d: saveBody }],
+];
+
+const [penPencil, penFold, penPage, penLine] = paths(FilePenLine);
+/** Save As (FilePenLine), for the ribbon's palette: the page's tint is
+ *  masked out under the pencil, so none of it shows inside the pencil. */
+export const FilePenLineTinted: IconNode = [
+  ["defs", {}, [
+    ["mask", { id: "rb-file-pen-line-mask", maskUnits: "userSpaceOnUse", x: 0, y: 0, width: 24, height: 24 }, [
+      ["rect", { x: 0, y: 0, width: 24, height: 24, fill: "white" }],
+      ["path", { d: penPencil, fill: "black", stroke: "black", "stroke-width": 1 }],
+    ]],
+  ]],
+  ["path", { d: penPage, class: "rb-tint", stroke: "none", mask: "url(#rb-file-pen-line-mask)" }],
+  ["path", { d: penFold }],
+  ["path", { d: penPage }],
+  ["path", { d: penLine }],
+  ["path", { d: penPencil, class: "rb-accent" }],
+] as IconNode;
 
 const cache = new Map<IconNode, SVGElement>();
 

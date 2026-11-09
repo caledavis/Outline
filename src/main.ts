@@ -6,10 +6,16 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, message, open, save } from "@tauri-apps/plugin-dialog";
 import type { Editor } from "@tiptap/core";
 import { Filters } from "./filters";
-import { FileText, Globe, Plus, X, icon, insertIcons } from "./icons";
-import { toggleMenu, type MenuEntry } from "./menu";
-import { NORMAL_TEXT_SIZE, allTags, assignIds, cleanTags, newDoc, type Link, type OutlineDoc } from "./model";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  AArrowDown, AArrowUp, Bold, BookOpen, Bug, CircleArrowDown, FilePenLineTinted, FilePlus, FileText, FolderOpen, Globe, Italic,
+  Link as LinkIcon, PanelLeft, Paperclip, Plus, RotateCcw, SaveTinted, Scale, StickyNote, Strikethrough, Tags, Underline, X, icon, insertIcons,
+} from "./icons";
+import { toggleMenu } from "./menu";
+import { editTags, manageTags } from "./tags";
+import { NORMAL_TEXT_SIZE, assignIds, newDoc, type Link, type OutlineDoc } from "./model";
 import { promptText } from "./prompt";
+import { Ribbon } from "./ribbon";
 import { Sidebar } from "./sidebar";
 import { OutlineView, isMac, type ViewState } from "./view";
 import { chooseZoteroItems } from "./zotero";
@@ -136,7 +142,10 @@ function renderTabs() {
       closeTab(tab);
     });
 
-    item.append(icon(FileText, 14), name, close);
+    // In the icon palette, as Magnolia's tabs (see "Icon palette" in styles.css).
+    const fileIcon = icon(FileText, 13);
+    fileIcon.classList.add("rb-icon", "rb-file-text");
+    item.append(fileIcon, name, close);
     return item;
   });
 
@@ -294,18 +303,29 @@ async function saveFile(saveAs = false) {
   }
 }
 
-getCurrentWindow().onCloseRequested(async (event) => {
+/** Asks before quitting with unsaved changes. Returns true if it's OK to quit. */
+async function confirmQuit(): Promise<boolean> {
   view.flush();
   const unsaved = tabs.filter((tab) => tab.dirty);
-  if (!unsaved.length) return;
+  if (!unsaved.length) return true;
   const names = unsaved.map((tab) => `“${fileName(tab.path)}”`).join(", ");
-  const discard = await ask(
+  return ask(
     unsaved.length === 1
       ? `Do you want to discard your changes to ${names}?`
       : `${unsaved.length} outlines have unsaved changes: ${names}. Do you want to discard them?`,
     { title: "Unsaved changes", kind: "warning", okLabel: "Discard", cancelLabel: "Cancel" },
   );
-  if (!discard) event.preventDefault();
+}
+
+getCurrentWindow().onCloseRequested(async (event) => {
+  if (!(await confirmQuit())) event.preventDefault();
+});
+
+// Install and Relaunch in the update window (see updater.rs): Outline quits
+// to install, so unsaved changes are asked about first, as when quitting.
+listen("update:install-requested", async () => {
+  if (await confirmQuit()) invoke("update_relaunch");
+  else invoke("update_install_cancelled");
 });
 
 // ---------------------------------------------------------------------------
@@ -328,36 +348,12 @@ async function editLink() {
 
 view.onLinkRequest = editLink;
 view.onCiteRequest = () => cite();
-view.onTagRequest = (cell) => toggleMenu(cell, tagMenu);
+view.onTagRequest = () => editTags(view, () => manageTags(view));
 view.onAttachRequest = (cell) => toggleMenu(cell, attachMenu);
 
 // ---------------------------------------------------------------------------
 // Tags, attachments and Zotero
 // ---------------------------------------------------------------------------
-
-/** A checklist of tags for the selected rows, plus a way to make a new one. */
-function tagMenu(): MenuEntry[] {
-  const has = view.selectedTags();
-  const entries: MenuEntry[] = allTags(view.doc).map(({ tag }) => ({
-    label: tag,
-    checked: has.has(tag),
-    action: () => view.applyTag(tag),
-  }));
-  if (entries.length) entries.push("separator");
-  entries.push({ label: "New tag…", icon: Plus, action: newTagForRows });
-  return entries;
-}
-
-async function newTagForRows() {
-  const name = await promptText("New tag", "");
-  const [tag] = cleanTags([name ?? ""]);
-  if (tag) view.applyTag(tag);
-}
-
-function showTagMenu() {
-  const anchor = view.tagMenuAnchor();
-  if (anchor) toggleMenu(anchor, tagMenu);
-}
 
 async function attachFiles() {
   const paths = await open({ multiple: true, directory: false, title: "Attach files" });
@@ -400,7 +396,7 @@ const SIDEBAR_KEY = "sidebarHidden";
 
 function setSidebarHidden(hidden: boolean) {
   document.body.classList.toggle("sidebar-hidden", hidden);
-  document.querySelector('[data-action="sidebar"]')?.classList.toggle("active", !hidden);
+  ribbon.button("sidebar")?.setAttribute("aria-pressed", String(!hidden));
   try {
     localStorage.setItem(SIDEBAR_KEY, String(hidden));
   } catch {
@@ -453,43 +449,118 @@ const actions: Record<string, (button: HTMLButtonElement) => void> = {
   new: newFile,
   open: openFile,
   save: () => saveFile(),
+  "save-as": () => saveFile(true),
   bold: () => view.editor?.chain().focus().toggleBold().run(),
   italic: () => view.editor?.chain().focus().toggleItalic().run(),
   underline: () => view.editor?.chain().focus().toggleUnderline().run(),
   strike: () => view.editor?.chain().focus().toggleStrike().run(),
   link: editLink,
   note: () => view.toggleNote(),
+  tags: () => manageTags(view),
   attach: (button) => toggleMenu(button, attachMenu),
   cite,
   smaller: () => stepFontSize(-1),
   larger: () => stepFontSize(1),
   "reset-size": () => setFontSize(DEFAULT_FONT_SIZE),
-  // The filter button handles its own clicks (see filters.ts).
+  "check-updates": () => invoke("check_for_updates"),
+  website: () => openUrl(WEBSITE),
+  issues: () => openUrl(`${WEBSITE}/issues`),
+  licence: () => openUrl(`${WEBSITE}/blob/main/LICENSE`),
 };
 
+const WEBSITE = "https://github.com/caledavis/Outline";
+
+const ribbon = new Ribbon(document.getElementById("ribbon-tabs")!, document.getElementById("ribbon")!, [
+  {
+    id: "home",
+    label: "Home",
+    groups: [
+      {
+        label: "File",
+        buttons: [
+          { action: "new", label: "New", icon: FilePlus, tint: "file-plus", title: "New outline (Mod+N)" },
+          { action: "open", label: "Open", icon: FolderOpen, tint: "folder-open", title: "Open… (Mod+O)" },
+          { action: "save", label: "Save", icon: SaveTinted, tint: "save", title: "Save (Mod+S)" },
+          { action: "save-as", label: "Save As", icon: FilePenLineTinted, tint: "file-pen-line", title: "Save As… (Mod+Shift+S)" },
+        ],
+      },
+      {
+        label: "Text",
+        buttons: [
+          { action: "bold", mark: "bold", label: "Bold", icon: Bold, tint: "bold", title: "Bold (Mod+B)" },
+          { action: "italic", mark: "italic", label: "Italic", icon: Italic, tint: "italic", title: "Italic (Mod+I)" },
+          { action: "underline", mark: "underline", label: "Underline", icon: Underline, tint: "underline", title: "Underline (Mod+U)" },
+          { action: "strike", mark: "strike", label: "Strike­through", icon: Strikethrough, tint: "strikethrough", title: "Strikethrough" },
+          { action: "link", mark: "link", label: "Link", icon: LinkIcon, tint: "link", title: "Link (Mod+K)" },
+        ],
+      },
+      {
+        label: "Rows",
+        buttons: [
+          { action: "note", label: "Note", icon: StickyNote, tint: "sticky-note", title: "Add or edit note (Mod+')" },
+          { action: "tags", label: "Tags", icon: Tags, tint: "tags", title: "Manage the tags and tag categories" },
+          { action: "attach", label: "Attach", icon: Paperclip, tint: "paperclip", title: "Attach a file or web link" },
+          { action: "cite", label: "Zotero", icon: BookOpen, tint: "book-open", title: "Link to an item in Zotero" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "view",
+    label: "View",
+    groups: [
+      {
+        label: "Panes",
+        buttons: [{ action: "sidebar", label: "Sidebar", icon: PanelLeft, tint: "panel-left", title: "Show or hide the sidebar (Mod+\\)" }],
+      },
+      {
+        label: "Text Size",
+        buttons: [
+          { action: "smaller", label: "Smaller", icon: AArrowDown, tint: "a-arrow-down", title: "Smaller text (Mod+−)" },
+          { action: "reset-size", label: "Default Size", icon: RotateCcw, tint: "rotate-ccw", title: "Reset text size" },
+          { action: "larger", label: "Larger", icon: AArrowUp, tint: "a-arrow-up", title: "Larger text (Mod++)" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "help",
+    label: "Help",
+    groups: [
+      {
+        label: "Updates",
+        buttons: [{ action: "check-updates", label: "Check for Updates", icon: CircleArrowDown, tint: "circle-arrow-down" }],
+      },
+      {
+        label: "Outline",
+        buttons: [
+          { action: "website", label: "Website", icon: Globe, tint: "globe", title: "Outline on GitHub" },
+          { action: "issues", label: "Report a Problem", icon: Bug, tint: "bug", title: "Report a problem or suggest an idea on GitHub" },
+          { action: "licence", label: "Licence", icon: Scale, tint: "scale", title: "Outline's licence, the EUPL" },
+        ],
+      },
+    ],
+  },
+]);
+ribbon.onAction = (action, button) => actions[action]?.(button);
+
+// The search box and filter button stay at the end of the toolbar.
 const toolbar = document.querySelector<HTMLElement>(".toolbar")!;
 insertIcons(toolbar);
-const markButtons = [...toolbar.querySelectorAll<HTMLButtonElement>("[data-mark]")];
-
-for (const button of toolbar.querySelectorAll<HTMLButtonElement>("button")) {
-  button.title = button.title.replace(/Mod\+/g, isMac ? "⌘" : "Ctrl+");
+for (const button of toolbar.querySelectorAll<HTMLButtonElement>("button:not(.ribbon-tab):not(.ribbon-collapse)")) {
   // Stop the button taking focus away from the text being edited.
   button.addEventListener("mousedown", (e) => e.preventDefault());
-  button.addEventListener("click", () => actions[button.dataset.action!]?.(button));
 }
+const markButtons = [...document.querySelectorAll<HTMLButtonElement>(".ribbon-btn[data-mark]")];
 
-// When the window is too narrow for every button group, they scroll sideways
-// and a chevron shows on each side that has buttons out of sight.
-const toolbarPills = document.getElementById("toolbar-pills")!;
-const scrollHintLeft = document.getElementById("scroll-hint-left")!;
-const scrollHintRight = document.getElementById("scroll-hint-right")!;
-function updateScrollHints() {
-  const { scrollLeft, scrollWidth, clientWidth } = toolbarPills;
-  scrollHintLeft.classList.toggle("visible", scrollLeft > 1);
-  scrollHintRight.classList.toggle("visible", scrollLeft < scrollWidth - clientWidth - 1);
+// A dot on Check for Updates (and the Help tab) while a newer version is
+// published (see updater.rs).
+interface UpdateBadge {
+  available: boolean;
 }
-toolbarPills.addEventListener("scroll", updateScrollHints, { passive: true });
-new ResizeObserver(updateScrollHints).observe(toolbarPills);
+const showUpdateBadge = (badge: UpdateBadge) => ribbon.setBadge("check-updates", badge.available);
+invoke<UpdateBadge>("get_update_badge").then(showUpdateBadge);
+listen<UpdateBadge>("update:badge", (e) => showUpdateBadge(e.payload));
 
 view.onEditorChange = (editor: Editor | null) => {
   for (const button of markButtons) {
@@ -563,7 +634,7 @@ window.addEventListener(
     if (mod && e.shiftKey && key === "t") {
       e.preventDefault();
       e.stopPropagation();
-      showTagMenu();
+      editTags(view, () => manageTags(view));
       return;
     }
     const target = e.target as HTMLElement;

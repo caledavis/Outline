@@ -62,11 +62,23 @@ build its own installers, so the releases are built by GitHub Actions
 1. Update the version number in `package.json`, `src-tauri/tauri.conf.json` and
    `src-tauri/Cargo.toml`, and commit.
 2. Tag the commit and push the tag, e.g. `git tag v0.2.0 && git push origin v0.2.0`.
-3. GitHub builds every installer and publishes them as a release; the download links above then
-   point to it.
+3. GitHub builds every installer and uploads them, signed for the updater, to a draft release.
+4. Write the release notes in the draft on GitHub (Outline's update window shows them), run
+   `npm run release:finish` to add the update manifest, and publish the draft. The download
+   links above then point to it, and installed copies offer the update.
 
-To try the builds without publishing, run the workflow by hand (Actions → Release → Run
-workflow); the installers are attached to the run.
+[RELEASING.md](RELEASING.md) has the details, including the updater's signing key and how to
+rehearse an update before publishing it. To try the builds without publishing, run the workflow
+by hand (Actions → Release → Run workflow); the installers are attached to the run.
+
+## Updates
+
+A few seconds after it opens, Outline checks GitHub for a newer version. If there is one, a
+Software Update window shows what's new and offers **Skip This Version**, **Remind Me Later**
+and **Install Update**, which downloads it and then offers **Install and Relaunch** (or installs
+it when you quit). **Check for Updates…** is in the Outline menu on a Mac and on the ribbon's
+Help tab. The portable Windows version can't update itself, so there Install Update opens the
+download page instead.
 
 ## Running it
 
@@ -97,8 +109,8 @@ cd src-tauri && cargo test   # run the Rust tests
 | Select several rows | Shift+click, ⌘+click, or Shift+↑/↓ when not editing (indent, move, delete and styles then act on all of them) |
 | Show / hide sidebar | ⌘+\\ |
 | Search | ⌘+F (Esc clears) |
-| Larger / smaller text | ⌘+plus / ⌘+minus (or − and + in the toolbar, with ↺ to reset) |
-| Tags for the selected rows | ⌘+Shift+T |
+| Larger / smaller text | ⌘+plus / ⌘+minus (or Larger and Smaller on the ribbon's View tab) |
+| Edit Tags for the selected rows | ⌘+Shift+T |
 | Undo / redo | ⌘+Z / ⌘+Shift+Z |
 | New / open / save / save as | ⌘+N / ⌘+O / ⌘+S / ⌘+Shift+S |
 | New tab / close tab | ⌘+N or ⌘+T / ⌘+W |
@@ -122,9 +134,14 @@ the type changes, existing values are converted where possible.
 - **Tags** are created and managed in the sidebar's Tags pane, shown as chips (+ New tag adds
   one). Click a chip to add that tag to the selected rows, or again to remove it; its ⌄ menu
   shows only rows with that tag, renames it or deletes it. Tags appear as pills in a Tags column. Click an
-  empty part of a Tags cell (or press ⌘+Shift+T) for a checklist of tags for that row; click a
-  pill to filter by it, or hover for × to remove it.
-- **Attach** (paperclip) links a row to files or web pages, shown in a Links column; click a
+  empty part of a Tags cell (or press ⌘+Shift+T) for **Edit Tags**, a checklist of every tag for
+  the selected rows; click a pill to filter by it, or hover for × to remove it.
+- **Tags** on the ribbon's Home tab opens **Manage Tags** (as Magnolia's Manage Document Tags):
+  add, rename (click a name) and delete tags, and **tag categories**. A category, such as
+  Country, has a type: Text, Date or Numeric values are typed in, and a List offers its options.
+  Its values are tags named `Category:Value` (e.g. `Country:Australia`), so they work everywhere
+  plain tags do.
+- **Attach** (paperclip, on the ribbon's Home tab) links a row to files or web pages, shown in a Links column; click a
   link to open it, or an empty part of a Links cell to add one.
 - **Zotero** (book) links a row to items in your Zotero library. The links go in a Zotero
   column, which is added the first time; click an empty part of a Zotero cell to link that
@@ -140,8 +157,17 @@ contents are shown next to each row's topic instead.
 
 Type in the search box to show only rows containing all the words (in any column, note, tag
 or link), along with the rows they sit inside. The filter button narrows the outline by tags
-and by the values of checkbox and pop-up list columns; active filters are listed under the
-toolbar.
+and by the values of checkbox and pop-up list columns; active filters are listed above the
+outline.
+
+## The ribbon
+
+As in Magnolia, the toolbar is a ribbon: **Home** (files, text formatting, and notes, tags,
+attachments and Zotero for rows), **View** (the sidebar and text size) and **Help** (updates,
+the website, reporting a problem, the licence). Double-click a tab, or click the chevron beside
+the tabs, to fold the ribbon down to its tabs; a tab's buttons then show over the outline when you
+click it. In short windows the ribbon is more compact, and when its buttons don't fit the
+window's width they scroll between chevrons.
 
 ## Sidebar
 
@@ -170,15 +196,19 @@ right-click one for suggestions.
 ```
 src-tauri/src/
   lib.rs      Rust commands the interface calls: open_outline, save_outline
+  updater.rs  Checks for, downloads and installs updates; the Software Update window
   opml.rs     Reads and writes OPML files (with tests)
   zotero.rs   Searches the Zotero library through Zotero's local API
 src/
-  main.ts     Toolbar, tabs, file open/save, window title, global shortcuts
+  main.ts     The ribbon's buttons, tabs, file open/save, window title, global shortcuts
+  ribbon.ts   The ribbon toolbar (from Magnolia's)
+  update/     The Software Update window (update.html)
   sidebar.ts  The sidebar: overview of top-level rows, styles and tags
   filters.ts  The search box, filter menu and filter bar
   zotero.ts   The dialog for linking rows to Zotero items
   menu.ts     Pop-up menus
   prompt.ts   The small text-entry dialog
+  tags.ts     The Manage Tags and Edit Tags dialogs (from Magnolia's)
   view.ts     Draws the outline grid; editing, keys, drag and drop, columns, undo
   model.ts    The outline data and operations (indent, move, delete…)
   editor.ts   Sets up the TipTap text editor used inside a cell
@@ -186,6 +216,8 @@ src/
   sanitize.ts Strips unsafe HTML from files before showing it
   styles.css  Appearance (follows the system's light/dark mode)
 index.html    The window's layout
+update.html   The Software Update window's page
+scripts/release.mjs  Collects release builds and writes the update manifest (RELEASING.md)
 ```
 
 ## App icon
@@ -203,13 +235,12 @@ npx tauri icon /tmp/opml_icon.png -o /tmp/opml-icons && cp /tmp/opml-icons/icon.
 rm -rf src-tauri/icons/android src-tauri/icons/ios   # not needed for a desktop app
 ```
 
-The logo in the toolbar (`index.html`) is `icon-sources/logo.svg`, drawn in the text colour.
-
 ## File format
 
 Each row is an `<outline>` element; nesting rows nests elements. The main column is the
 standard `text` attribute (inline HTML for formatting) and notes use the common `_note`
-attribute. Tags use OPML's standard `category` attribute. Extra columns, styles, links and
+attribute. Tags use OPML's standard `category` attribute (a tag in a category is `Category:Value`).
+Tag categories, extra columns, styles, links and
 collapsed rows use the `ol:` namespace, which other apps simply ignore:
 
 ```xml

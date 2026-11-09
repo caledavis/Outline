@@ -1300,6 +1300,69 @@ export class OutlineView {
     });
   }
 
+  /** Adds a tag to every selected row, or takes it off every one. */
+  setTagOnSelection(tag: string, on: boolean) {
+    const rows = this.selectedRowObjects();
+    if (!rows.length) return;
+    this.change(() => {
+      if (rows.every((row) => (row.tags ?? []).includes(tag) === on)) return false;
+      for (const row of rows) {
+        row.tags = on ? model.cleanTags([...(row.tags ?? []), tag]) : (row.tags ?? []).filter((t) => t !== tag);
+      }
+      if (on) {
+        model.defineTag(this.doc, tag);
+        model.ensureRowDataColumn(this.doc, "tags");
+      }
+      return true;
+    });
+  }
+
+  /** Tags that only some of the selected rows have. */
+  partlySelectedTags(): Set<string> {
+    const rows = this.selectedRowObjects();
+    const all = this.selectedTags();
+    return new Set(rows.flatMap((row) => row.tags ?? []).filter((tag) => !all.has(tag)));
+  }
+
+  /** Makes a value's tag in a category; returns it, or null if the value isn't valid there. */
+  createCategoryTag(category: model.TagCategory, value: string): string | null {
+    let tag: string | null = null;
+    this.change(() => {
+      const before = model.allTags(this.doc).length;
+      tag = model.defineCategoryTag(this.doc, category, value);
+      return model.allTags(this.doc).length !== before;
+    });
+    return tag;
+  }
+
+  createCategory(name: string, type: model.TagCategoryType, listOptions: string[] = []): boolean {
+    let created = false;
+    this.change(() => (created = model.createCategory(this.doc, name, type, listOptions)));
+    return created;
+  }
+
+  renameCategory(from: string, to: string) {
+    let renamed: string | null = null;
+    this.change(() => !!(renamed = model.renameCategory(this.doc, from, to)));
+    const prefix = `${from}:`;
+    if (renamed && this.filter.tags.some((t) => t.startsWith(prefix))) {
+      const tags = this.filter.tags.map((t) => (t.startsWith(prefix) ? model.categoryTag(renamed!, t.slice(prefix.length)) : t));
+      this.setFilter({ ...this.filter, tags });
+    }
+  }
+
+  deleteCategory(name: string) {
+    const prefix = `${name}:`;
+    this.change(() => model.deleteCategory(this.doc, name));
+    if (this.filter.tags.some((t) => t.startsWith(prefix))) {
+      this.setFilter({ ...this.filter, tags: this.filter.tags.filter((t) => !t.startsWith(prefix)) });
+    }
+  }
+
+  setListOptions(name: string, options: string[]) {
+    this.change(() => model.setListOptions(this.doc, name, options));
+  }
+
   /** Tags that every selected row has. */
   selectedTags(): Set<string> {
     const [first, ...rest] = this.selectedRowObjects();

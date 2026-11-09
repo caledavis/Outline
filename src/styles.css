@@ -1,10 +1,11 @@
 /*
  * The look follows Magnolia's (a sister app), so the two feel like a family:
- * white cards with hairline borders on a slate canvas, a toolbar of pill-shaped
- * button groups, small-caps pane headings and a royal-blue accent.
+ * white cards with hairline borders on a slate canvas, a ribbon toolbar with
+ * icons in a four-colour palette, small-caps pane headings and a royal-blue
+ * accent.
  */
 :root {
-  --canvas: #d2dae4;      /* the window behind the cards, and the toolbar */
+  --canvas: #e9edf3;      /* the window behind the cards */
   --bg: #ffffff;          /* cards, menus and dialogs */
   --fg: #1a2633;
   --text-secondary: #3a4a60;
@@ -17,12 +18,21 @@
   --accent-hover: #1d55d9;
   --danger: #ef4444;
   --icon: #3a4a60;
-  --pill: #eaeff6;        /* toolbar button groups */
+  --pill: #eaeff6;        /* the search box and filter button */
   --pill-hover: rgb(255 255 255 / 0.7);
   --scrollbar: #b8c4d4;
-  --card-shadow: 0 2px 8px rgb(20 40 70 / 0.18), 0 1px 3px rgb(20 40 70 / 0.12);
+  --card-shadow: 0 2px 8px rgb(20 40 70 / 0.10), 0 1px 3px rgb(20 40 70 / 0.07);
+  /* Half the canvas gap between cards (each card's margin), as Magnolia's. */
+  --pane-half-gap: 1.5px;
   --menu-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
   --dialog-shadow: 0 10px 30px -5px rgb(0 0 0 / 0.1);
+  /* The ribbon's icon palette, as Magnolia's: ink outlines with blue, coral
+     and gold accents, and the tint of a shape's fill. */
+  --rb-ink: #34425a;
+  --rb-blue: #3a78d8;
+  --rb-coral: #e5674b;
+  --rb-gold: #eba62a;
+  --rb-tint: 28%;
   color-scheme: light dark;
   /* The interface font (also the outline's normal font), and the serif a style can choose. */
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -54,7 +64,19 @@
     --card-shadow: 0 2px 8px rgb(0 0 0 / 0.55), 0 1px 3px rgb(0 0 0 / 0.4);
     --menu-shadow: 0 4px 12px rgb(0 0 0 / 0.4);
     --dialog-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+    --rb-ink: #c3cbd8;
+    --rb-blue: #6aa2f0;
+    --rb-coral: #f08a70;
+    --rb-gold: #f2c060;
   }
+}
+
+:root {
+  /* The tab row and the button strip read as one block: near-white, with a
+     faint shade so it isn't stark. The tab row takes the top colour and the
+     buttons fade from it to the bottom one. */
+  --ribbon-shade-top: color-mix(in srgb, var(--bg) 82%, var(--pill));
+  --ribbon-shade-bottom: color-mix(in srgb, var(--bg) 50%, var(--pill));
 }
 
 * { box-sizing: border-box; }
@@ -93,21 +115,23 @@ button {
 /* Toolbar ---------------------------------------------------------------- */
 
 /* The outline's name pinned on the left and search pinned on the right, with
-   the button groups centred between them. When the window is too narrow, the
-   button groups scroll sideways rather than squeezing the ends. */
+   the ribbon's tabs between them. The ribbon's buttons are in the strip
+   below (see "Ribbon"). */
+/* 40px with 6px at the top, as Magnolia's ribbon toolbar, so the tabs sit a
+   little above the row's middle and their underline close to the buttons. */
 .toolbar {
   display: flex;
   align-items: center;
   flex: none;
-  height: 52px;
-  padding: 0 12px;
-  background: var(--canvas);
+  height: 40px;
+  padding: 6px 12px 0;
+  background: var(--ribbon-shade-top);
   user-select: none;
   -webkit-user-select: none;
 }
 
 /* Room for the window buttons, which sit in the toolbar on a Mac. */
-:root[data-platform="mac"] .toolbar { padding-left: 88px; }
+:root[data-platform="mac"] .toolbar { padding-left: 92px; }
 
 .brand {
   display: flex;
@@ -119,23 +143,16 @@ button {
   color: var(--fg);
 }
 
-.logo {
-  flex: none;
-  width: 18px;
-  height: 20px;
-  pointer-events: none;
-}
-
 .document-name {
   max-width: 240px;
   overflow: hidden;
+  padding: 2px 6px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-/* The button groups, with a gutter either side for the scroll chevrons. */
 .toolbar-middle {
   display: flex;
   align-items: center;
@@ -143,42 +160,6 @@ button {
   align-self: stretch;
   min-width: 0;
 }
-
-/* Shown when buttons are scrolled out of sight on that side. The gutters keep
-   their room when hidden, so a chevron never covers a button. */
-.scroll-hint {
-  display: flex;
-  justify-content: center;
-  flex: none;
-  width: 36px;
-  color: var(--muted);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-
-.scroll-hint.visible { opacity: 1; }
-
-/* Scrolls sideways if the window is too narrow for every group. */
-.toolbar-pills {
-  display: flex;
-  align-items: center;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-/* Centred while the groups fit. Once they don't, the auto margins drop to
-   zero, so the groups start at the left edge and scroll from there. */
-.toolbar-pills-inner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 0 auto;
-}
-
-.toolbar-pills::-webkit-scrollbar { display: none; }
 
 .toolbar-end {
   display: flex;
@@ -234,13 +215,16 @@ button {
   gap: 6px;
   width: 200px;
   min-width: 90px;
-  height: 34px;
+  height: 30px;
   padding: 0 12px;
   color: var(--muted);
   background: var(--pill);
   border: 1px solid transparent;
   border-radius: 999px;
 }
+
+/* The filter button, beside the search box: as tall as it. */
+.toolbar-end .pill { padding: 1px; }
 
 .search:focus-within { background: var(--bg); border-color: var(--accent); }
 
@@ -255,18 +239,304 @@ button {
   outline: none;
 }
 
+/* Ribbon ------------------------------------------------------------------ */
+
+/* Ported from Magnolia's (see ribbon.ts). Plain text tabs: the selected one
+   is underlined in the accent; a hovered one gets a faint underline rather
+   than a box, since a box would float free of the buttons below. */
+.ribbon-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding-left: 4px;
+}
+
+.ribbon-tab {
+  position: relative;
+  flex: none;
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: default;
+}
+
+.ribbon-tab::after {
+  content: "";
+  position: absolute;
+  /* As wide as the label: the tab's padding is 14px each side. */
+  left: 14px;
+  right: 14px;
+  bottom: 3px;
+  height: 2px;
+  border-radius: 1px;
+  background: transparent;
+  transition: background 0.1s;
+}
+
+.ribbon-tab:hover { color: var(--fg); }
+.ribbon-tab:hover::after { background: var(--border); }
+.ribbon-tabs:not(.ribbon-collapsed) .ribbon-tab[aria-selected="true"] { color: var(--fg); font-weight: 600; }
+.ribbon-tabs:not(.ribbon-collapsed) .ribbon-tab[aria-selected="true"]::after { background: var(--accent); }
+
+/* A dot on the tab with a badged button (a new version, on Help). */
+.ribbon-tab.has-badge::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ribbon-collapse {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 24px;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.ribbon-collapse:hover { color: var(--fg); }
+
+.ribbon-host {
+  position: relative;
+  flex: none;
+  z-index: 30;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ribbon-body {
+  display: flex;
+  align-items: stretch;
+  padding: 4px 8px;
+  background: linear-gradient(180deg, var(--ribbon-shade-top), var(--ribbon-shade-bottom));
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--card-shadow);
+  /* The shadow falls only below, not onto the tab row above. */
+  clip-path: inset(0 0 -12px 0);
+}
+
+/* Shown from a folded ribbon: floats over the outline below. */
+.ribbon-host.ribbon-peek { height: 0; }
+.ribbon-host.ribbon-peek .ribbon-body {
+  box-shadow: 0 8px 16px rgb(0 0 0 / 0.12);
+  clip-path: inset(0 0 -32px 0);
+}
+
+/* The groups. They scroll sideways only when even the narrowed buttons
+   don't fit (ribbon.ts), between the chevrons below. */
+.ribbon-scroll {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.ribbon-scroll::-webkit-scrollbar { display: none; }
+
+.ribbon-panel { display: flex; align-items: stretch; }
+.ribbon-panel[hidden] { display: none; }
+
+/* Chevrons in their own gutters (not over the buttons), there only while
+   the buttons overflow, each fading in while there's more on its side. */
+.ribbon-scroll-hint {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.ribbon-body[data-overflow] .ribbon-scroll-hint { display: flex; }
+.ribbon-scroll-hint[data-shown] { opacity: 1; pointer-events: auto; }
+.ribbon-scroll-hint:hover { color: var(--fg); }
+
+.ribbon-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  padding: 0 10px;
+  border-right: 1px solid var(--border);
+}
+
+.ribbon-group:last-child { border-right: none; }
+.ribbon-group-buttons { display: flex; flex: 1; gap: 2px; }
+
+.ribbon-group-label {
+  padding-top: 2px;
+  font-size: 11px;
+  /* Magnolia's body has the normal line height, not our 1.45, so its group
+     names take a shorter line; match it, or the ribbon is taller. */
+  line-height: normal;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.ribbon-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  /* At least this wide; a longer label widens it (ribbon.ts sets the
+     label's min-width to its two-line width). Narrower than Magnolia's
+     76px, since most of Outline's labels are one short word. */
+  width: min-content;
+  min-width: 60px;
+  padding: 5px 4px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+}
+
+/* No hover fill: the ribbon stays flat, as Magnolia's. */
+.ribbon-btn:active:not(:disabled) .ribbon-tile { transform: scale(0.92); }
+/* The sidebar, while it's hidden: its icon and label fade. */
+.ribbon-btn[aria-pressed="false"] .ribbon-tile { filter: saturate(0); opacity: 0.45; }
+.ribbon-btn[aria-pressed="false"] .ribbon-label { color: var(--muted); }
+.ribbon-btn:disabled { opacity: 0.45; }
+/* A formatting button whose mark the text has. */
+.ribbon-btn.active .ribbon-tile { background: var(--selected); }
+
+.ribbon-label {
+  font-size: 11.5px;
+  line-height: 1.2;
+  text-align: center;
+  /* Room for two lines on every tab, so the ribbon keeps one height and
+     the outline doesn't jump when you switch tabs. */
+  min-height: 2.4em;
+}
+
+/* A tab too wide for the window at its label widths (ribbon.ts): the
+   one-word labels go back to 60px buttons, hyphenated, or broken anywhere
+   as a last resort. Beyond that the buttons scroll. */
+.ribbon-body[data-tight="words"] .ribbon-label[data-one-word] {
+  min-width: 0 !important;
+  -webkit-hyphens: auto;
+  hyphens: auto;
+  overflow-wrap: anywhere;
+}
+
+.ribbon-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 28px;
+  font-size: 24px;
+  border-radius: 6px;
+  transition: transform 0.08s;
+}
+
+.ribbon-tile svg { width: 1em; height: 1em; }
+
+.ribbon-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--ribbon-shade-bottom);
+}
+
+/* Compact ribbon for short windows (a laptop screen, or a window that isn't
+   full height), as Magnolia's: the group names go, and the icons and padding
+   shrink, so the buttons take about 62px rather than 95px. The labels keep
+   their two lines. The group names are still the groups' accessible names
+   (aria-label), and the separators still divide them. */
+@media (max-height: 850px) {
+  .ribbon-body { padding: 2px 8px; }
+  .ribbon-group-label { display: none; }
+  .ribbon-btn { gap: 3px; padding: 3px 4px; }
+  .ribbon-label { font-size: 11px; }
+  .ribbon-tile { width: 26px; height: 22px; font-size: 18px; }
+}
+
+/* Icon palette ------------------------------------------------------------ */
+
+/* As Magnolia's: each glyph is drawn in ink, with parts picked out in blue,
+   coral or gold, and some shapes filled with a tint of theirs. The rules
+   name the parts of each Lucide icon by position. */
+.rb-icon { color: var(--rb-ink); stroke-width: 2; }
+.rb-icon > * { stroke: var(--rb-ink); }
+.rb-icon > [fill="currentColor"] { fill: var(--rb-ink); }
+
+.rb-file-plus > :nth-child(1) { fill: color-mix(in srgb, var(--rb-blue) var(--rb-tint), transparent); }
+.rb-file-plus > :nth-child(n+3) { stroke: var(--rb-blue); }
+.rb-folder-open > * { fill: color-mix(in srgb, var(--rb-gold) var(--rb-tint), transparent); }
+/* Save and Save As are reordered copies of Lucide's (SaveTinted and
+   FilePenLineTinted in icons.ts), with their parts named by class. */
+.rb-save > .rb-tint,
+.rb-file-pen-line > .rb-tint { fill: color-mix(in srgb, var(--rb-blue) var(--rb-tint), transparent); }
+.rb-save > .rb-accent { stroke: var(--rb-blue); }
+.rb-file-pen-line > .rb-accent { stroke: var(--rb-coral); fill: color-mix(in srgb, var(--rb-coral) var(--rb-tint), transparent); }
+.rb-underline > :nth-child(2),
+.rb-strikethrough > :nth-child(3) { stroke: var(--rb-coral); }
+.rb-link > :nth-child(1) { stroke: var(--rb-blue); }
+.rb-sticky-note > :nth-child(1) { fill: color-mix(in srgb, var(--rb-gold) var(--rb-tint), transparent); }
+.rb-sticky-note > * { stroke: var(--rb-gold); }
+/* As Magnolia's Tags button. */
+.rb-tags > :nth-child(2) { stroke: var(--rb-blue); }
+.rb-tags > :nth-child(3) { stroke: var(--rb-coral); fill: var(--rb-coral); }
+.rb-paperclip > * { stroke: var(--rb-blue); }
+.rb-book-open > :nth-child(2) { fill: color-mix(in srgb, var(--rb-coral) var(--rb-tint), transparent); }
+.rb-panel-left > :nth-child(1) { fill: color-mix(in srgb, var(--rb-blue) var(--rb-tint), transparent); }
+.rb-panel-left > :nth-child(2) { stroke: var(--rb-blue); }
+.rb-a-arrow-down > :nth-child(-n+2),
+.rb-a-arrow-up > :nth-child(-n+2),
+.rb-rotate-ccw > :nth-child(2) { stroke: var(--rb-blue); }
+.rb-circle-arrow-down > :nth-child(1) { fill: color-mix(in srgb, var(--rb-blue) var(--rb-tint), transparent); }
+.rb-circle-arrow-down > :nth-child(n+2) { stroke: var(--rb-blue); }
+.rb-globe > :nth-child(1) { fill: color-mix(in srgb, var(--rb-blue) var(--rb-tint), transparent); }
+.rb-bug > :nth-child(2) { fill: color-mix(in srgb, var(--rb-coral) var(--rb-tint), transparent); }
+.rb-scale > :nth-child(2n) { stroke: var(--rb-blue); }
+/* The open outlines' tabs. */
+.rb-file-text > :nth-child(1) { fill: color-mix(in srgb, var(--rb-blue) var(--rb-tint), transparent); }
+.rb-file-text > :nth-child(n+3) { stroke: var(--rb-blue); }
+
 /* Layout: cards on the canvas ----------------------------------------------- */
 
-/* The cards have a 2px margin, so 4px of canvas shows between them and 2px at the window's edges. */
+/* Each card has a margin of --pane-half-gap and the workspace a padding of it,
+   so the same 3px of canvas shows between cards, at the window's edges and
+   below the ribbon. */
 .workspace {
   display: flex;
   flex: 1;
   min-height: 0;
-  padding: 0 2px 2px;
+  padding: var(--pane-half-gap);
 }
 
 .panel {
-  margin: 2px;
+  margin: var(--pane-half-gap);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -359,8 +629,6 @@ button {
 .tab.drop-before::after { left: -1px; }
 .tab.drop-after::after { right: -2px; }
 
-.tab > .icon { color: var(--muted); }
-
 .tab-name {
   flex: 1;
   min-width: 0;
@@ -446,7 +714,8 @@ button {
 
 .menu {
   position: fixed;
-  z-index: 20;
+  /* Above the ribbon (30), whose buttons open menus that drop down over it. */
+  z-index: 40;
   min-width: 180px;
   max-height: 70vh;
   overflow-y: auto;
@@ -458,6 +727,21 @@ button {
   box-shadow: var(--menu-shadow);
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* The arrow from a ribbon button's menu up to the button (menu.ts), as on
+   Magnolia's toolbar popovers. Drawn over the menu, so its lower half (no
+   border) covers the menu's top border where the arrow joins it. */
+.menu-arrow {
+  position: fixed;
+  z-index: 41;
+  width: 12px;
+  height: 12px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  transform: rotate(45deg);
+  pointer-events: none;
 }
 
 .menu-item {
@@ -1373,3 +1657,173 @@ dialog.zotero .search { width: 100%; height: 32px; border-radius: 2px; backgroun
 }
 
 .zotero-byline { font-size: 12px; }
+
+/* Tag dialogs (tags.ts) ---------------------------------------------------- */
+
+/* Laid out as Magnolia's Manage Document Tags and Edit Tags dialogs. */
+dialog.tags-dialog { width: min(520px, 90vw); }
+dialog.tags-apply { width: min(460px, 90vw); }
+dialog.tags-options-dialog { width: min(380px, 90vw); }
+
+.tags-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.tags-body {
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.tags-section { margin-bottom: 2px; }
+
+.tags-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 8px;
+  background: var(--hover);
+  border-radius: 2px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tags-section-header > .icon { flex: none; color: var(--muted); }
+.tags-apply .tags-section-header { min-height: 0; padding: 4px 2px; background: none; font-size: 11px; color: var(--muted); }
+
+.tags-section-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tags-apply .tags-section-name { flex: none; }
+
+.tags-type {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 3px;
+}
+
+.tags-apply .tags-type { padding: 0; background: none; opacity: 0.7; }
+
+.tags-count {
+  flex: none;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.tags-section-body { padding: 2px 0 6px; }
+.tags-apply .tags-section-body { padding: 0 0 8px 18px; }
+
+.tags-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 8px 2px 28px;
+  font-size: 12px;
+}
+
+.tags-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tags-renameable { cursor: text; }
+input.tags-rename { flex: 1; padding: 2px 6px; font-size: 12px; }
+.tags-section-header input.tags-rename { font-weight: 600; }
+.tags-none { color: var(--muted); font-style: italic; font-size: 11px; }
+
+.tags-delete {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-radius: 2px;
+}
+
+.tags-delete:hover { color: var(--danger); }
+
+.tags-edit-options,
+.tags-add button,
+.tags-new-line button {
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+}
+
+.tags-edit-options:hover,
+.tags-add button:hover,
+.tags-new-line button:hover { background: var(--hover); }
+
+.tags-add input,
+.tags-section-body > input { flex: 1; padding: 3px 6px; font-size: 11px; }
+.tags-section-body > input { margin-top: 4px; }
+
+.tags-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 3px 0;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.tags-check input { width: auto; margin: 0; }
+
+.tags-list-options {
+  max-height: 150px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.tags-empty {
+  margin: 12px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.tags-new-category {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.tags-form-label {
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.tags-new-line { display: flex; gap: 6px; margin-bottom: 6px; }
+.tags-new-line input { flex: 1; }
+.tags-new-line select { width: 96px; font: inherit; font-size: 12px; }
+.tags-new-options { font-size: 11px; }
+.tags-hint { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+
+/* Manage Tags... on the left, Done on the right, as Magnolia's. */
+dialog menu button.tags-manage { margin-right: auto; }

@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Icon design sources (Affinity files and exports), kept out of the repo.
+app_and_file_icons/

@@ -96,7 +96,24 @@ export interface OutlineDoc {
   defaultStyle?: Style;
   /** Tags created in the Tags pane, including ones no row uses yet. */
   tags?: string[];
+  /** Tag categories, as Magnolia's (see "Tag categories" below). */
+  tagCategories?: TagCategory[];
   rows: Row[];
+}
+
+export type TagCategoryType = "text" | "date" | "numeric" | "list";
+export const TAG_CATEGORY_TYPES: TagCategoryType[] = ["text", "date", "numeric", "list"];
+
+/**
+ * A kind of tag that takes a value, such as "Country" (with "Australia",
+ * "Netherlands"…). A row's tag in a category is "Category:Value", so other
+ * apps reading the file still see a plain tag.
+ */
+export interface TagCategory {
+  name: string;
+  type: TagCategoryType;
+  /** The values a "list" category offers. */
+  listOptions?: string[];
 }
 
 export function newRow(): Row {
@@ -566,4 +583,136 @@ export function deleteTag(doc: OutlineDoc, name: string) {
   walk(doc.rows, (row) => {
     if (row.tags?.includes(name)) row.tags = row.tags.filter((t) => t !== name);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Tag categories
+// ---------------------------------------------------------------------------
+
+/** A category name or value as it can be stored: no commas (they separate
+ *  tags in the file), no colons in a category's name (one ends it). */
+function cleanName(name: string, colons: boolean): string {
+  const [clean] = cleanTags([colons ? name : name.replace(/:/g, " ")]);
+  return clean ?? "";
+}
+
+/** A category's name as it's stored (see cleanName). */
+export function cleanCategoryName(name: string): string {
+  return cleanName(name, false);
+}
+
+/** The tag for a value in a category. */
+export function categoryTag(category: string, value: string): string {
+  return `${category}:${value}`;
+}
+
+/** The category a tag is in, and its value there, or null if it's a plain tag. */
+export function splitTag(doc: OutlineDoc, tag: string): { category: TagCategory; value: string } | null {
+  const colon = tag.indexOf(":");
+  if (colon < 0) return null;
+  const name = tag.slice(0, colon);
+  const category = (doc.tagCategories ?? []).find((c) => c.name === name);
+  return category ? { category, value: tag.slice(colon + 1) } : null;
+}
+
+/** A tag as it reads in a list of its category's values: just the value. */
+export function tagLabel(doc: OutlineDoc, tag: string): string {
+  return splitTag(doc, tag)?.value ?? tag;
+}
+
+const byText = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true });
+
+/** A category's tags (or the uncategorised ones, for null) in Magnolia's
+ *  order: newest date first, smallest number first, or alphabetically. */
+export function categoryTags(doc: OutlineDoc, category: TagCategory | null): { tag: string; value: string; count: number }[] {
+  const tags = allTags(doc)
+    .map(({ tag, count }) => ({ tag, count, split: splitTag(doc, tag) }))
+    .filter(({ split }) => (category ? split?.category === category : !split))
+    .map(({ tag, count, split }) => ({ tag, count, value: split?.value ?? tag }));
+  const order = (a: { value: string }, b: { value: string }) => {
+    if (category?.type === "date") {
+      const [da, db] = [Date.parse(a.value), Date.parse(b.value)];
+      if (!isNaN(da) && !isNaN(db) && da !== db) return db - da;
+      if (isNaN(da) !== isNaN(db)) return isNaN(da) ? 1 : -1;
+    } else if (category?.type === "numeric") {
+      const [na, nb] = [parseFloat(a.value), parseFloat(b.value)];
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+      if (isNaN(na) !== isNaN(nb)) return isNaN(na) ? 1 : -1;
+    }
+    return byText(a.value, b.value);
+  };
+  return tags.sort(order);
+}
+
+/** A list category's options, alphabetically, as Magnolia shows them. */
+export function sortedListOptions(category: TagCategory): string[] {
+  return [...(category.listOptions ?? [])].sort(byText);
+}
+
+/** Whether a value can go in a category: numbers in a numeric one. */
+export function validCategoryValue(category: TagCategory, value: string): boolean {
+  const clean = cleanName(value, true);
+  return !!clean && (category.type !== "numeric" || !isNaN(parseFloat(clean)));
+}
+
+/** Creates a value's tag in a category. Returns the tag, or null if the
+ *  value isn't valid there. */
+export function defineCategoryTag(doc: OutlineDoc, category: TagCategory, value: string): string | null {
+  if (!validCategoryValue(category, value)) return null;
+  const tag = categoryTag(category.name, cleanName(value, true));
+  defineTag(doc, tag);
+  return tag;
+}
+
+function cleanOptions(options: string[]): string[] {
+  return [...new Set(options.map((o) => cleanName(o, true)).filter(Boolean))];
+}
+
+/** Creates a category. Returns false if the name is empty or taken. */
+export function createCategory(doc: OutlineDoc, name: string, type: TagCategoryType, listOptions: string[] = []): boolean {
+  const clean = cleanName(name, false);
+  if (!clean || (doc.tagCategories ?? []).some((c) => c.name === clean)) return false;
+  const category: TagCategory = { name: clean, type };
+  if (type === "list") category.listOptions = cleanOptions(listOptions);
+  doc.tagCategories = [...(doc.tagCategories ?? []), category];
+  return true;
+}
+
+/** Renames a category, and its tags on every row. Returns the new name, or
+ *  null if it's empty, unchanged or taken. */
+export function renameCategory(doc: OutlineDoc, from: string, to: string): string | null {
+  const clean = cleanName(to, false);
+  const categories = doc.tagCategories ?? [];
+  const category = categories.find((c) => c.name === from);
+  if (!category || !clean || clean === from || categories.some((c) => c.name === clean)) return null;
+  const rename = (tag: string) => (splitTag(doc, tag)?.category === category ? categoryTag(clean, tag.slice(from.length + 1)) : tag);
+  doc.tags = (doc.tags ?? []).map(rename);
+  walk(doc.rows, (row) => {
+    if (row.tags) row.tags = cleanTags(row.tags.map(rename));
+  });
+  category.name = clean;
+  return clean;
+}
+
+/** Deletes a category and its tags, removing them from every row. */
+export function deleteCategory(doc: OutlineDoc, name: string): boolean {
+  const category = (doc.tagCategories ?? []).find((c) => c.name === name);
+  if (!category) return false;
+  const inCategory = (tag: string) => splitTag(doc, tag)?.category === category;
+  doc.tags = (doc.tags ?? []).filter((t) => !inCategory(t));
+  walk(doc.rows, (row) => {
+    if (row.tags?.some(inCategory)) row.tags = row.tags.filter((t) => !inCategory(t));
+  });
+  doc.tagCategories = doc.tagCategories!.filter((c) => c !== category);
+  return true;
+}
+
+/** Sets a list category's options. Tags for options taken away stay on the
+ *  rows that have them, as in Magnolia. */
+export function setListOptions(doc: OutlineDoc, name: string, options: string[]): boolean {
+  const category = (doc.tagCategories ?? []).find((c) => c.name === name);
+  const clean = cleanOptions(options);
+  if (!category || JSON.stringify(category.listOptions ?? []) === JSON.stringify(clean)) return false;
+  category.listOptions = clean;
+  return true;
 }

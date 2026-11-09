@@ -52,11 +52,31 @@ export function showMenu(anchor: HTMLElement, entries: MenuEntry[]) {
 
   document.body.append(menu);
   const rect = anchor.getBoundingClientRect();
-  const left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8);
-  const below = rect.bottom + 4;
-  const top = below + menu.offsetHeight > window.innerHeight - 8 ? Math.max(8, rect.top - menu.offsetHeight - 4) : below;
-  menu.style.left = `${Math.max(8, left)}px`;
-  menu.style.top = `${top}px`;
+  // From a ribbon button, as Magnolia's toolbar popovers: centred on the
+  // button's icon and just below it, with an arrow pointing up at it.
+  const tile = anchor.closest(".ribbon-btn")?.querySelector(".ribbon-tile");
+  let arrow: HTMLElement | null = null;
+  if (tile) {
+    const icon = tile.getBoundingClientRect();
+    const centre = icon.left + icon.width / 2;
+    const left = Math.max(8, Math.min(centre - menu.offsetWidth / 2, window.innerWidth - menu.offsetWidth - 8));
+    const top = icon.bottom + 9;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.maxHeight = `${Math.max(120, window.innerHeight - top - 8)}px`;
+    // Outside the menu, which would clip it (it scrolls when it's long).
+    arrow = document.createElement("div");
+    arrow.className = "menu-arrow";
+    arrow.style.left = `${centre - 6}px`;
+    arrow.style.top = `${top - 6}px`;
+    document.body.append(arrow);
+  } else {
+    const left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8);
+    const below = rect.bottom + 4;
+    const top = below + menu.offsetHeight > window.innerHeight - 8 ? Math.max(8, rect.top - menu.offsetHeight - 4) : below;
+    menu.style.left = `${Math.max(8, left)}px`;
+    menu.style.top = `${top}px`;
+  }
 
   const onPointerDown = (e: PointerEvent) => {
     if (!menu.contains(e.target as Node) && !anchor.contains(e.target as Node)) closeMenu();
@@ -76,6 +96,7 @@ export function showMenu(anchor: HTMLElement, entries: MenuEntry[]) {
     menu,
     close: () => {
       menu.remove();
+      arrow?.remove();
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("blur", closeMenu);

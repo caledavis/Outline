@@ -7,7 +7,9 @@
 //! - `text`  — the row's main ("Topic") column, as inline HTML (allowed by the spec)
 //! - `_note` — the row's note, a widely used convention (OmniOutliner, Workflowy…)
 //!
-//! - `category` — the row's tags, comma-separated (from the OPML 2.0 spec)
+//! - `category` — the row's tags, comma-separated (from the OPML 2.0 spec).
+//!   A tag in a tag category is "Category:Value", so it reads as a plain tag
+//!   elsewhere; the categories themselves are `ol:tag-category` elements.
 //!
 //! Anything OPML has no standard place for (extra columns, styles, links,
 //! collapsed rows) is stored in elements and attributes under our own `ol:`
@@ -40,7 +42,24 @@ pub struct Document {
     /// Tags created in the Tags pane, including ones no row uses yet.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Tag categories, such as "Country" with its values as tags.
+    #[serde(default)]
+    pub tag_categories: Vec<TagCategory>,
     pub rows: Vec<Row>,
+}
+
+/// One of `TAG_CATEGORY_TYPES`, as Magnolia's tag categories.
+pub const TAG_CATEGORY_TYPES: [&str; 4] = ["text", "date", "numeric", "list"];
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagCategory {
+    pub name: String,
+    #[serde(rename = "type", default = "text_type")]
+    pub kind: String,
+    /// The values a "list" category offers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub list_options: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -147,6 +166,7 @@ pub fn parse(xml: &str) -> Result<Document, String> {
         styles: Vec::new(),
         default_style: Style::default(),
         tags: Vec::new(),
+        tag_categories: Vec::new(),
         rows: Vec::new(),
     };
     // Rows whose closing `</outline>` we haven't reached yet, outermost first.
@@ -179,6 +199,12 @@ pub fn parse(xml: &str) -> Result<Document, String> {
                     let name = attributes(&e)?.into_iter().find(|(key, _)| key == "name").map(|(_, v)| v);
                     if let Some(name) = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()) {
                         doc.tags.push(name);
+                    }
+                }
+                "ol:tag-category" => {
+                    let category = tag_category_from(&e)?;
+                    if !category.name.is_empty() && !doc.tag_categories.iter().any(|c| c.name == category.name) {
+                        doc.tag_categories.push(category);
                     }
                 }
                 _ => {}
@@ -247,6 +273,22 @@ fn row_from(e: &BytesStart) -> Result<Row, String> {
         }
     }
     Ok(row)
+}
+
+fn tag_category_from(e: &BytesStart) -> Result<TagCategory, String> {
+    let mut category = TagCategory { name: String::new(), kind: text_type(), list_options: Vec::new() };
+    for (key, value) in attributes(e)? {
+        match key.as_str() {
+            // A colon would end the name inside its tags.
+            "name" => category.name = value.replace([':', ','], " ").trim().to_string(),
+            "type" if TAG_CATEGORY_TYPES.contains(&value.as_str()) => category.kind = value,
+            "options" => {
+                category.list_options = value.lines().map(str::trim).filter(|o| !o.is_empty()).map(String::from).collect();
+            }
+            _ => {}
+        }
+    }
+    Ok(category)
 }
 
 fn column_from(e: &BytesStart) -> Result<Column, String> {
@@ -345,6 +387,16 @@ pub fn write(doc: &Document) -> Result<String, String> {
     }
     for style in &doc.styles {
         out += &format!("    <ol:style id=\"{}\" name=\"{}\"{}/>\n", style.id, attr(&style.name), style_attributes(style));
+    }
+    for category in &doc.tag_categories {
+        out += &format!("    <ol:tag-category name=\"{}\"", attr(&category.name));
+        if category.kind != "text" && TAG_CATEGORY_TYPES.contains(&category.kind.as_str()) {
+            out += &format!(" type=\"{}\"", category.kind);
+        }
+        if !category.list_options.is_empty() {
+            out += &format!(" options=\"{}\"", attr(&category.list_options.join("\n")));
+        }
+        out += "/>\n";
     }
     for tag in &doc.tags {
         out += &format!("    <ol:tag name=\"{}\"/>\n", attr(tag));
@@ -493,7 +545,12 @@ mod tests {
                 },
             ],
             default_style: Style { size: Some(15), font: Some("sans".into()), ..Style::default() },
-            tags: vec!["to-read".into(), "unused & spare".into()],
+            tags: vec!["to-read".into(), "unused & spare".into(), "Country:Netherlands".into()],
+            tag_categories: vec![
+                TagCategory { name: "Country".into(), kind: "list".into(), list_options: vec!["Australia".into(), "Netherlands".into()] },
+                TagCategory { name: "Interviewed".into(), kind: "date".into(), list_options: Vec::new() },
+                TagCategory { name: "Notes & such".into(), kind: "text".into(), list_options: Vec::new() },
+            ],
             rows: vec![parent, empty],
         }
     }
