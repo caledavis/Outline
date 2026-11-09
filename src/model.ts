@@ -43,6 +43,9 @@ export interface Link {
   detail?: string;
   /** A Zotero item's notes, as plain text (copied from Zotero when linked). */
   notes?: string[];
+  /** The page number typed after each note, in the notes' order ("" for none).
+   *  Copying a note puts ", <page>" before its closing "}". */
+  pages?: string[];
 }
 
 /**

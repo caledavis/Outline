@@ -389,11 +389,31 @@ export class OutlineView {
           }
           const item = el("div", "zotero-link");
           item.append(linkBadge(link, index));
-          for (const note of link.notes ?? []) {
+          (link.notes ?? []).forEach((note, noteIndex) => {
+            const line = el("div", "zotero-note-line");
             const noteEl = text("zotero-note", note);
-            noteEl.title = "Click to copy";
-            item.append(noteEl);
-          }
+            noteEl.title = "Click to copy, with the page number before the closing }";
+            noteEl.dataset.link = String(index);
+            noteEl.dataset.note = String(noteIndex);
+            // The page cited, added to the note when it's copied.
+            const page = el("input", "zotero-page");
+            page.type = "text";
+            page.placeholder = "Page";
+            page.value = link.pages?.[noteIndex] ?? "";
+            page.title = "The page number, added before the note\u2019s closing } when you copy it";
+            page.setAttribute("aria-label", "Page number");
+            page.spellcheck = false;
+            page.addEventListener("keydown", (e) => {
+              if (e.key === "Enter" || e.key === "Escape") {
+                e.preventDefault();
+                if (e.key === "Escape") page.value = link.pages?.[noteIndex] ?? "";
+                page.blur();
+              }
+            });
+            page.addEventListener("change", () => this.setNotePage(row.id, index, noteIndex, page.value));
+            line.append(noteEl, page);
+            item.append(line);
+          });
           links.append(item);
         });
         return links;
@@ -740,7 +760,9 @@ export class OutlineView {
 
     const note = target.closest<HTMLElement>(".zotero-note");
     if (note) {
-      copyText(note.textContent ?? "", note);
+      const link = rowId ? model.locate(this.doc, rowId)?.row.links?.[Number(note.dataset.link)] : undefined;
+      const page = link?.pages?.[Number(note.dataset.note)]?.trim();
+      copyText(withPage(note.textContent ?? "", page), note);
       return;
     }
 
@@ -1020,6 +1042,22 @@ export class OutlineView {
     if (!column) return;
     this.change(() => {
       column.showNotes = !column.showNotes;
+      return true;
+    });
+  }
+
+  /** Sets the page number after one of a Zotero link's notes. */
+  private setNotePage(rowId: string, linkIndex: number, noteIndex: number, value: string) {
+    const link = model.locate(this.doc, rowId)?.row.links?.[linkIndex];
+    if (!link) return;
+    const page = value.trim();
+    this.change(() => {
+      if ((link.pages?.[noteIndex] ?? "") === page) return false;
+      const pages = Array.from({ length: Math.max(link.pages?.length ?? 0, noteIndex + 1) }, (_, i) => link.pages?.[i] ?? "");
+      pages[noteIndex] = page;
+      while (pages.length && !pages[pages.length - 1]) pages.pop();
+      if (pages.length) link.pages = pages;
+      else delete link.pages;
       return true;
     });
   }
@@ -1553,6 +1591,16 @@ function linkBadge(link: Link, index: number): HTMLElement {
   const kindIcon = link.kind === "zotero" ? BookOpen : link.kind === "file" ? FileText : Globe;
   badge.append(icon(kindIcon, 12), text("badge-label", link.title), removeButton("Remove link"));
   return badge;
+}
+
+/** A Zotero note with its page number and a full stop added: before a
+ *  closing "}" (so "\autocite{smith2021}" becomes "\autocite{smith2021, 12.}"),
+ *  or at the end of a note that doesn't end in one. */
+export function withPage(note: string, page: string | undefined): string {
+  if (!page) return note;
+  const cited = page.endsWith(".") ? page : `${page}.`;
+  const trimmed = note.trimEnd();
+  return trimmed.endsWith("}") ? `${trimmed.slice(0, -1)}, ${cited}}` : `${trimmed}, ${cited}`;
 }
 
 /** Copies text to the clipboard, briefly marking the element it came from as copied. */

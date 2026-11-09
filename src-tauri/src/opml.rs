@@ -102,6 +102,10 @@ pub struct Link {
     /// A Zotero item's notes, as plain text (copied from Zotero when linked).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// The page number typed after each note, in the notes' order ("" for
+    /// none). Copying a note puts ", <page>" before its closing `}`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pages: Vec<String>,
 }
 
 pub const LINK_KINDS: [&str; 3] = ["file", "url", "zotero"];
@@ -508,6 +512,7 @@ mod tests {
                 title: "Smith 2021".into(),
                 detail: "A <long> & winding title".into(),
                 notes: vec!["\\cite{smith2021}".into(), "Line one\nline \"two\"".into()],
+                pages: vec!["12–14".into(), String::new()],
             },
         ];
 

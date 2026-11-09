@@ -1489,6 +1489,32 @@ dialog menu button.primary:hover { background: var(--accent-hover); }
 
 .zotero-note:hover { border-color: var(--accent); }
 
+/* A note with its page number after it. */
+.zotero-note-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.zotero-note-line .zotero-note { flex: 0 1 auto; min-width: 0; }
+
+.zotero-page {
+  flex: none;
+  width: 56px;
+  padding: 3px 6px;
+  font: 12px/1.4 var(--sans);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  outline: none;
+}
+
+.zotero-page:hover { border-color: var(--border); }
+.zotero-page:focus { border-color: var(--accent); }
+.zotero-page::placeholder { color: var(--muted); }
+
 .zotero-note.copied::after {
   content: "Copied";
   position: absolute;

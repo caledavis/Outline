@@ -146,7 +146,8 @@ the type changes, existing values are converted where possible.
 - **Zotero** (book) links a row to items in your Zotero library. The links go in a Zotero
   column, which is added the first time; click an empty part of a Zotero cell to link that
   row, or a link to show the item in Zotero. The column's ⌄ menu has **Show notes**, which shows
-  each item's Zotero notes under it (click a note to copy it, e.g. a LaTeX citation), and
+  each item's Zotero notes under it (click a note to copy it, e.g. a LaTeX citation; type a
+  page number in the **Page** box after a note and it's copied as `\autocite{smith2021, 12.}`), and
   **Update notes from Zotero** to fetch them again after editing them in Zotero. This needs Zotero 7 or later to be open, with *Allow other applications on
   this computer to communicate with Zotero* ticked in Zotero → Settings → Advanced.
 
